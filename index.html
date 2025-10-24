@@ -35,7 +35,7 @@
     </p>
   </div>
 
-  <!-- ✅ 버전 고정 (예: 0.10.17). 최신으로 바꾸고 싶으면 숫자만 올려. -->
+  <!-- tasks-vision 스크립트: 버전 고정(원하면 숫자만 올려도 됨) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17"></script>
   <script>
   (async () => {
@@ -46,7 +46,6 @@
     const qualEl  = document.getElementById('qual');
     const warnEl  = document.getElementById('warn');
     const dbg     = document.getElementById('debug');
-
     function log(s){ dbg.textContent = s; }
 
     // 1) 카메라
@@ -72,29 +71,26 @@
     if (video.readyState >= 2) syncCanvasSize();
     else video.addEventListener('loadeddata', syncCanvasSize);
 
-    // 2) MediaPipe Face Landmarker 로드
+    // 2) MediaPipe 로컬 파일셋 + 로컬 모델 (.task)
+    // FilesetResolver는 /wasm 폴더의 4개 파일명을 그대로 기대함.
+    // (SIMD 지원 여부에 따라 자동으로 골라 로드) 
     const { FaceLandmarker, FilesetResolver } = window;
     if (!FaceLandmarker || !FilesetResolver) {
       warnEl.style.display = 'block';
-      log('MediaPipe Tasks Vision not loaded (CDN 차단?)');
+      log('tasks-vision 스크립트 로드 실패 (CDN 차단?)');
       return;
     }
 
     log('loading wasm/files…');
-    const vision = await FilesetResolver.forVisionTasks(
-      // ✅ WASM 경로(버전 맞춤)
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm"
-    );
+    const vision = await FilesetResolver.forVisionTasks("/wasm");
 
     let faceLandmarker = null;
     try {
       faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: {
-          // ✅ 구글 호스팅 모델 (CORS 허용)
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+          modelAssetPath: "/models/face_landmarker.task" // 로컬 모델
         },
-        runningMode: "VIDEO",    // LIVE_STREAM도 가능하지만 VIDEO가 호환성 좋음
+        runningMode: "VIDEO",
         numFaces: 1,
         outputFaceBlendshapes: false
       });
@@ -139,8 +135,8 @@
     function poseScore(lm){
       if (!lm || lm.length===0) return 0;
       const pts = lm[0];
-      const L = pts[33], R = pts[263], N = pts[1];
-      if (!L || !R || !N) return 0.5;
+      const L = pts[33], R = pts[263];
+      if (!L || !R) return 0.5;
       const dx = Math.abs(L.x - R.x);
       const dy = Math.abs(L.y - R.y);
       const horiz = Math.min(1, dx*4);
@@ -163,7 +159,6 @@
       ctx.drawImage(video, 0, 0, W, H);
 
       const res = faceLandmarker.detectForVideo(video, ts || performance.now());
-      // 최신 버전에선 동기/비동기 혼재 없이 동기 반환(예전엔 Promise). 방어적 처리:
       const out = (typeof res?.then === 'function') ? await res : res;
 
       if (out && out.faceLandmarks && out.faceLandmarks.length){
@@ -196,17 +191,15 @@
         scoreEl.textContent = final;
         qualEl.textContent  = `quality: ${ok ? 'ok' : 'low'}`;
 
-        // 1초에 한 번 상태 요약
         if (!lastLogTime || ts - lastLogTime > 1000){
           log(`faces:1  bright:${bScore.toFixed(1)}  sharp:${sScore.toFixed(1)}  pose:${pScore}  area:${(area*100).toFixed(1)}%`);
           lastLogTime = ts;
         }
       } else {
-        // 얼굴 없음 또는 landmarks 0 → 디버그 표시
         scoreEl.textContent = '—';
         qualEl.textContent  = 'quality: —';
         if (!lastLogTime || ts - lastLogTime > 1000){
-          log('no face / no landmarks (모델·WASM·CDN·조명 확인)');
+          log('no face / no landmarks (조명·거리·정면 확인)');
           lastLogTime = ts;
         }
       }
