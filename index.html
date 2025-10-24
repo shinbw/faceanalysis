@@ -3,146 +3,201 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Realtime Face Score (MVP)</title>
+  <title>라이브 얼굴 점수 (Beta)</title>
   <style>
-    body { margin:0; background:#0b0b0c; color:#fff; font-family:system-ui, sans-serif; }
-    .wrap { display:grid; place-items:center; min-height:100vh; gap:12px; }
-    #view { position:relative; width:72vw; max-width:960px; aspect-ratio:16/9; }
-    video, canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:16px; }
-    .hud { position:absolute; left:12px; bottom:12px; padding:8px 12px; background:rgba(0,0,0,.45); border-radius:999px; backdrop-filter: blur(6px); }
-    .tag { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px; background:#1d1f22; font-size:12px; opacity:.9; }
+    :root{color-scheme:dark light}
+    body{margin:0;font-family:system-ui, sans-serif;background:#0b0b0c;color:#fff}
+    .wrap{min-height:100dvh;display:grid;place-items:center;padding:16px}
+    .stage{position:relative;width:min(92vw,960px);aspect-ratio:16/9}
+    video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:16px}
+    .hud{position:absolute;left:12px;bottom:12px;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);
+         padding:10px 14px;border-radius:999px;font-size:14px}
+    .tag{margin-left:8px;padding:2px 8px;background:#1d1f22;border-radius:999px;opacity:.9}
+    .warn{position:absolute;inset:auto 12px 12px auto;background:#2b1a1a;color:#ffd7d7;padding:8px 10px;border-radius:8px;display:none}
+    .top{position:absolute;left:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .pill{font-size:12px;padding:4px 8px;background:rgba(0,0,0,.45);border-radius:999px}
+    a{color:#9df}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div id="view">
+    <div class="stage">
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="ov"></canvas>
-      <div class="hud">
-        <span>Score: <strong id="score">—</strong></span>
-        <span class="tag" id="quality">quality: —</span>
+      <div class="top">
+        <span class="pill">Allow camera permission</span>
+        <span class="pill">Tip: 정면·밝게·화면 1/6 이상</span>
       </div>
+      <div class="hud">
+        Score: <strong id="score">—</strong>
+        <span class="tag" id="qual">quality: —</span>
+      </div>
+      <div class="warn" id="warn">카메라 접근 실패. 브라우저 권한/HTTPS 확인.</div>
     </div>
+    <p style="opacity:.7;font-size:13px;">
+      Powered by <a href="https://github.com/google/mediapipe" target="_blank" rel="noreferrer">MediaPipe Tasks Vision</a>. 
+      모든 추론은 브라우저에서만 수행(서버 전송 없음).
+    </p>
   </div>
 
-<script>
-(async () => {
-  // 1) 카메라 시작
-  const video = document.getElementById('cam');
-  const canvas = document.getElementById('ov');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const scoreEl = document.getElementById('score');
-  const qualityEl = document.getElementById('quality');
+  <!-- MediaPipe Tasks Vision (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest"></script>
+  <script>
+  (async () => {
+    const video = document.getElementById('cam');
+    const canvas = document.getElementById('ov');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const scoreEl = document.getElementById('score');
+    const qualEl  = document.getElementById('qual');
+    const warnEl  = document.getElementById('warn');
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: false
-  });
-  video.srcObject = stream;
-  await video.play();
-
-  const W = video.videoWidth, H = video.videoHeight;
-  canvas.width = W; canvas.height = H;
-
-  // 2) FaceDetector (MVP용, 일부 브라우저만)
-  if (!('FaceDetector' in window)) {
-    alert('이 브라우저는 FaceDetector API를 지원하지 않습니다. MediaPipe를 사용하세요.');
-    return;
-  }
-  const fd = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-
-  // EMA로 점수 출렁임 완화
-  let ema = null, alpha = 0.2;
-
-  function brightnessAndSharpness(imgData, rect) {
-    const { x, y, width, height } = rect;
-    const rx = Math.max(0, Math.floor(x));
-    const ry = Math.max(0, Math.floor(y));
-    const rw = Math.min(W - rx, Math.floor(width));
-    const rh = Math.min(H - ry, Math.floor(height));
-    if (rw <= 0 || rh <= 0) return { bright: 0, sharp: 0 };
-
-    const roi = ctx.getImageData(rx, ry, rw, rh);
-    const d = roi.data;
-
-    // 그레이스케일 + 평균 밝기
-    let sum = 0;
-    const gray = new Uint8ClampedArray(rw * rh);
-    for (let i = 0, gi = 0; i < d.length; i += 4, gi++) {
-      const r = d[i], g = d[i+1], b = d[i+2];
-      const L = (0.2126*r + 0.7152*g + 0.0722*b); // luminance
-      gray[gi] = L; sum += L;
-    }
-    const bright = sum / gray.length; // 0~255
-
-    // 샤프니스: 간단 라플라시안 에너지
-    const k = [0,-1,0,-1,4,-1,0,-1,0];
-    let lapVarSum = 0, cnt = 0;
-    for (let y=1; y<rh-1; y++) {
-      for (let x=1; x<rw-1; x++) {
-        const i = y*rw + x;
-        const val =
-          gray[i]     * 4 +
-          gray[i-1]   * -1 +
-          gray[i+1]   * -1 +
-          gray[i-rw]  * -1 +
-          gray[i+rw]  * -1;
-        lapVarSum += val*val; cnt++;
-      }
-    }
-    const sharp = Math.sqrt(lapVarSum / Math.max(1,cnt)); // 값이 클수록 선명
-
-    return { bright, sharp };
-  }
-
-  function qualityGate(rect) {
-    // 얼굴 크기/위치로 아주 러프한 품질 게이트 (정면도/포즈는 MediaPipe로 보완 권장)
-    const area = (rect.width * rect.height) / (W * H);
-    const centered = Math.abs((rect.x + rect.width/2) - W/2) / (W/2);
-    // 얼굴이 화면의 6% 이상, 중앙에서 너무 치우치지 않음
-    return (area > 0.06) && (centered < 0.6);
-  }
-
-  async function loop() {
-    ctx.drawImage(video, 0, 0, W, H);
-
+    // 1) 카메라
     try {
-      const faces = await fd.detect(video);
-      if (faces && faces.length) {
-        const f = faces[0].boundingBox;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+    } catch (e) {
+      warnEl.style.display = 'block';
+      console.error('getUserMedia error', e);
+      return;
+    }
+
+    // 크기 동기화
+    function fit() {
+      canvas.width  = video.videoWidth  || 1280;
+      canvas.height = video.videoHeight || 720;
+    }
+    if (video.readyState >= 2) fit(); else video.addEventListener('loadeddata', fit);
+
+    // 2) MediaPipe Face Landmarker 로드
+    const { FaceLandmarker, FilesetResolver, DrawingUtils } = window;
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+    );
+    const faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        // 구글 호스팅 모델 (CORS 허용)
+        modelAssetPath:
+          "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+      },
+      runningMode: "VIDEO",
+      numFaces: 1,
+      outputFaceBlendshapes: false
+    });
+
+    // 3) 점수 계산 보조함수
+    function roiStats(x, y, w, h) {
+      const W = canvas.width, H = canvas.height;
+      const rx = Math.max(0, Math.floor(x));
+      const ry = Math.max(0, Math.floor(y));
+      const rw = Math.min(W - rx, Math.floor(w));
+      const rh = Math.min(H - ry, Math.floor(h));
+      if (rw <= 0 || rh <= 0) return { bright:0, sharp:0, area:0 };
+
+      const img = ctx.getImageData(rx, ry, rw, rh);
+      const d = img.data;
+      let sum=0;
+      const gray = new Uint8ClampedArray(rw*rh);
+      for (let i=0, gi=0; i<d.length; i+=4, gi++) {
+        const L = 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+        gray[gi] = L; sum += L;
+      }
+      const bright = sum / gray.length; // 0..255
+
+      // 간단 라플라시안 샤프니스
+      let lap = 0, cnt = 0;
+      for (let yy=1; yy<rh-1; yy++){
+        for (let xx=1; xx<rw-1; xx++){
+          const i = yy*rw + xx;
+          const val = 4*gray[i] - gray[i-1] - gray[i+1] - gray[i-rw] - gray[i+rw];
+          lap += val*val; cnt++;
+        }
+      }
+      const sharp = Math.sqrt(lap/Math.max(1,cnt));
+      const area  = (rw*rh)/(W*H);
+      return { bright, sharp, area };
+    }
+
+    // 4) 루프
+    let ema = null, alpha = 0.2;
+    const drawer = new DrawingUtils(ctx);
+
+    function qualityGate(box, yawPitchRollScore, area) {
+      // 중앙/크기/포즈(정면도) 간단 체크
+      const W = canvas.width, H = canvas.height;
+      const cx = box.x + box.width/2;
+      const centered = Math.abs(cx - W/2)/(W/2); // 0(중앙)~1(모서리)
+      const areaOk = area > 0.06;       // 얼굴이 프레임의 6% 이상
+      const centerOk = centered < 0.6;  // 너무 몰리지 않음
+      const poseOk = yawPitchRollScore > 0.6;
+      return areaOk && centerOk && poseOk;
+    }
+
+    function poseScore(landmarks) {
+      // 간단 정면도 근사: 양/음 뺨-코 길이 균형 등으로 0~1
+      if (!landmarks || landmarks.length === 0) return 0;
+      const lm = landmarks[0]; // 첫 얼굴
+      // 왼/오 눈 구석, 코 끝, 귀 근처 등을 대략 사용
+      // (정확한 포즈는 solvePnP가 좋지만 MVP는 근사)
+      const leftEye  = lm[33],  rightEye = lm[263], nose = lm[1];
+      if (!leftEye || !rightEye || !nose) return 0.5;
+      const dx = Math.abs(leftEye.x - rightEye.x);
+      const yn = Math.abs(leftEye.y - rightEye.y);
+      const horiz = Math.min(1, dx*4);            // 가로폭 넓으면 가점
+      const level = Math.max(0, 1 - yn*20);       // 양쪽 눈 높이 차 적을수록 가점
+      return Math.max(0, Math.min(1, 0.6*horiz + 0.4*level));
+    }
+
+    let lastTs = -1;
+    async function frame(t) {
+      const W = canvas.width, H = canvas.height;
+      ctx.drawImage(video, 0, 0, W, H);
+
+      const res = await faceLandmarker.detectForVideo(video, t ?? performance.now());
+      if (res && res.faceLandmarks && res.faceLandmarks.length) {
+        // 대략 박스 만들기
+        const pts = res.faceLandmarks[0];
+        let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+        for (const p of pts) {
+          const x = p.x*W, y = p.y*H;
+          if (x<minX) minX=x; if (x>maxX) maxX=x;
+          if (y<minY) minY=y; if (y>maxY) maxY=y;
+        }
+        const box = { x:minX, y:minY, width:maxX-minX, height:maxY-minY };
+
         // 시각화
         ctx.lineWidth = 3; ctx.strokeStyle = '#00ffd0';
-        ctx.strokeRect(f.x, f.y, f.width, f.height);
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-        const { bright, sharp } = brightnessAndSharpness(ctx.getImageData(0,0,W,H), f);
+        const { bright, sharp, area } = roiStats(box.x, box.y, box.width, box.height);
+        const pose = poseScore(res.faceLandmarks);
 
-        // 스코어링 (임시 휴리스틱) — 0~100 정규화
-        const brightScore = Math.max(0, Math.min(100, (bright - 60) * (100/140))); // ~60~200 범위 가정
-        const sharpScore  = Math.max(0, Math.min(100, (sharp  - 4)  * 12));        // 대충 스케일링
-        let raw = 0.5*brightScore + 0.5*sharpScore;
+        // 정규화 스코어 (간단 휴리스틱 0~100)
+        const bScore = Math.max(0, Math.min(100, (bright - 60) * (100/140))); // ~60~200 가정
+        const sScore = Math.max(0, Math.min(100, (sharp  - 4)  * 12));
+        const pScore = pose * 100;
 
-        // 품질 게이트 미통과 시 페널티
-        const ok = qualityGate(f);
+        let raw = 0.35*bScore + 0.35*sScore + 0.30*pScore;
+
+        const ok = qualityGate(box, pose, area);
         if (!ok) raw *= 0.6;
 
-        // EMA 스무딩
-        ema = (ema == null) ? raw : (alpha*raw + (1-alpha)*ema);
-        const finalScore = Math.round(Math.max(0, Math.min(100, ema)));
+        ema = (ema==null) ? raw : (alpha*raw + (1-alpha)*ema);
+        const final = Math.round(Math.max(0, Math.min(100, ema)));
 
-        scoreEl.textContent = finalScore;
-        qualityEl.textContent = `quality: ${ok ? 'ok' : 'low'}`;
+        scoreEl.textContent = final;
+        qualEl.textContent  = `quality: ${ok ? 'ok' : 'low'}`;
       } else {
         scoreEl.textContent = '—';
-        qualityEl.textContent = 'quality: —';
+        qualEl.textContent  = 'quality: —';
       }
-    } catch (e) {
-      // FaceDetector가 바쁘면 다음 프레임에서 재시도
+      requestAnimationFrame(frame);
     }
-
-    requestAnimationFrame(loop);
-  }
-  loop();
-})();
-</script>
+    requestAnimationFrame(frame);
+  })();
+  </script>
 </body>
 </html>
