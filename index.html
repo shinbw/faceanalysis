@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>카메라로 비율 측정해서 유사한 연예인 추천해주기</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <!-- HOME SCREEN -->
+  <main id="screen-home" class="screen active">
+    <header class="top">
+      <h1>카메라로 비율 측정해서 유사한 연예인 추천해주기</h1>
+      <p class="sub">정면 전신이 화면에 다 나오게 서고, 팔은 자연스럽게 내려주세요.</p>
+    </header>
+
+    <section class="panel">
+      <div class="btnRow">
+        <button id="btnMale" class="btn primary">측정하기 남자</button>
+        <button id="btnFemale" class="btn">측정하기 여자</button>
+      </div>
+      <p class="hint">카메라는 HTTPS(또는 localhost)에서만 동작합니다.</p>
+    </section>
+  </main>
+
+  <!-- MEASURE / RESULT SCREEN (A 화면) -->
+  <main id="screen-a" class="screen">
+    <header class="top">
+      <div class="scoreBox">
+        <div class="scoreLabel">측정 점수</div>
+        <div id="score" class="score">-</div>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div class="videoWrap">
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="status" class="status">대기중…</div>
+      </div>
+
+      <div class="resultWrap">
+        <h2 class="headline">너와 커플로 가장 잘 어울리는 사람은</h2>
+        <div class="card">
+          <img id="pickImg" alt="추천 이미지" />
+          <div class="meta">
+            <div id="pickName" class="name">-</div>
+            <div id="detail" class="detail">-</div>
+          </div>
+        </div>
+
+        <div class="btnRow">
+          <button id="btnRetry" class="btn">다시 측정</button>
+          <button id="btnBack" class="btn ghost">홈으로</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MediaPipe Pose (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+  <script src="./app.js"></script>
+</body>
+</html>
