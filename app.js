@@ -1,15 +1,13 @@
 /* =========================================================
-   ✅ 변경사항
-   1) 촬영 전에도 실시간으로 "인식 막대" 많이 표시(점수는 계산 X)
-      - 얼굴/상체/하체 바(좌측 HUD)
-      - 몸 중심선(머리~어깨~골반~발)
-      - 어깨/골반 가이드 라인
-      - 스켈레톤+랜드마크
-   2) 점수 구간 변경
-      남: 60↑ a2 / 40~60 b2 / 30~40 c2 / 30↓ d2
-      여: 60↑ a1 / 40~60 b1 / 30~40 c1 / 30↓ d1
-   3) 촬영하기 누르면 3초 후 1장 캡처 분석
-   4) 전면/후면 전환 + 전면만 거울모드
+   FIXED VERSION
+   - 측정실패 줄이기: 발(foot_index/heel/ankle) 중 최적 선택
+   - 0점 고정 해결: MIN_PROP vs MAX_PROP에서 구간 방향 자동 처리
+   - 촬영 전에도 가이드(막대/라인) 계속 표시
+   - 촬영 버튼 3초 카운트다운 후 1장 캡처 분석
+   - 전/후면 전환 + 전면만 거울모드
+   - 점수구간:
+     남: 60↑ a2 / 40~60 b2 / 30~40 c2 / 30↓ d2
+     여: 60↑ a1 / 40~60 b1 / 30~40 c1 / 30↓ d1
    ========================================================= */
 
 // ====== MIN/MAX (요구사항) ======
@@ -18,7 +16,7 @@ const MAX = [43, 62, 140];
 const MIN_PROP = normalize(MIN);
 const MAX_PROP = normalize(MAX);
 
-// ====== 추천 매핑(수정됨) ======
+// ====== 추천 매핑 ======
 const PICK_MAP = {
   male: [
     { min: 60, name: "a2", src: "./assets/a2.jpg" },
@@ -71,25 +69,32 @@ let timerInFlight = false;
 let countdownTimer = null;
 let capturedCanvas = null;
 
-// 실시간 “막대” 프리뷰(점수X)
+// 실시간 프리뷰(가이드 표시)
 let previewRunning = false;
 let previewBusy = false;
 let previewRafId = null;
 
-// ====== Pose Landmark index (33) ======
+// ====== Landmark index (MediaPipe Pose 33) ======
 const IDX = {
+  NOSE: 0,
   LEFT_EAR: 7,
   RIGHT_EAR: 8,
   LEFT_SHOULDER: 11,
   RIGHT_SHOULDER: 12,
   LEFT_HIP: 23,
   RIGHT_HIP: 24,
+
   LEFT_ANKLE: 27,
   RIGHT_ANKLE: 28,
+  LEFT_HEEL: 29,
+  RIGHT_HEEL: 30,
   LEFT_FOOT_INDEX: 31,
   RIGHT_FOOT_INDEX: 32,
 };
-const MIN_VIS = 0.55;
+
+// 실패 줄이려고 기준 완화
+const MIN_VIS_CORE = 0.35; // 귀/어깨/골반은 이 정도면 OK
+const MIN_VIS_FOOT = 0.20; // 발은 더 완화
 
 // =========================
 // Events
@@ -128,7 +133,7 @@ async function startFlow(gender) {
     await initPoseIfNeeded();
     await startCamera();
     statusEl.textContent = `준비 완료! (${facingMode === "user" ? "전면" : "후면"}) 전신 맞추고 촬영하기`;
-    startPreviewLoop(); // ✅ 촬영 전에도 인식 막대 계속 표시
+    startPreviewLoop();
   } catch (err) {
     console.error(err);
     statusEl.textContent = "카메라 시작 실패: HTTPS/권한(허용)/브라우저 설정 확인(F12 콘솔).";
@@ -218,7 +223,7 @@ function stopCamera() {
 }
 
 // =========================
-// Preview loop (점수X, 막대/스켈레톤 표시용)
+// Preview loop (가이드 표시)
 // =========================
 function startPreviewLoop() {
   if (!pose || !stream) return;
@@ -228,7 +233,6 @@ function startPreviewLoop() {
   const tick = async () => {
     if (!previewRunning) return;
 
-    // 캡처/카운트다운/분석 중엔 프리뷰는 멈추고(화면 혼선 방지)
     if (timerInFlight || analyzeInFlight) {
       previewRafId = requestAnimationFrame(tick);
       return;
@@ -237,12 +241,13 @@ function startPreviewLoop() {
     if (!previewBusy) {
       previewBusy = true;
       try {
-        await pose.send({ image: video }); // 결과는 onResults로 들어옴
+        await pose.send({ image: video });
       } catch (e) {
         console.error(e);
         previewBusy = false;
       }
     }
+
     previewRafId = requestAnimationFrame(tick);
   };
 
@@ -259,7 +264,7 @@ function stopPreviewLoop() {
 }
 
 // =========================
-// Switch camera (restart)
+// Switch camera
 // =========================
 async function switchCamera() {
   if (analyzeInFlight || timerInFlight) return;
@@ -308,7 +313,6 @@ async function captureWithDelay(seconds) {
 
   countdownTimer = setInterval(async () => {
     left -= 1;
-
     if (left > 0) {
       updateCountdown(left);
       statusEl.textContent = `촬영까지 ${left}초…`;
@@ -330,6 +334,7 @@ function cancelCountdown() {
   }
   timerInFlight = false;
 }
+
 function showCountdown(n) {
   countdownEl.textContent = String(n);
   countdownEl.classList.add("show");
@@ -341,7 +346,6 @@ function hideCountdown() {
   countdownEl.classList.remove("show");
 }
 
-// 실제 촬영 + 분석 1회
 async function captureAndAnalyze() {
   analyzeInFlight = true;
 
@@ -357,7 +361,7 @@ async function captureAndAnalyze() {
   try { video.pause(); } catch {}
 
   try {
-    await pose.send({ image: cap }); // onResults로 처리
+    await pose.send({ image: cap });
   } catch (e) {
     console.error(e);
     analyzeInFlight = false;
@@ -378,11 +382,10 @@ function resetForRetry() {
 // Pose results
 // =========================
 function onResults(results) {
-  // 1) 캡처 분석 결과 처리
+  // 캡처 분석 결과
   if (analyzeInFlight) {
     analyzeInFlight = false;
 
-    // 캡처 사진 + 랜드마크 표시
     drawCaptured(results);
 
     if (!results.poseLandmarks) {
@@ -392,7 +395,11 @@ function onResults(results) {
       return;
     }
 
-    const prop = measureProportions(results.poseLandmarks, capturedCanvas.width, capturedCanvas.height);
+    const prop = measureProportions(results.poseLandmarks,
+      capturedCanvas?.width || video.videoWidth,
+      capturedCanvas?.height || video.videoHeight
+    );
+
     if (!prop) {
       scoreEl.textContent = "측정실패";
       statusEl.textContent = "측정 실패(어깨/골반/발이 잘 보여야 함). 다시 촬영해줘.";
@@ -412,22 +419,19 @@ function onResults(results) {
     detail.textContent =
       (rounded === null)
         ? "점수 계산이 NaN이야. 전신/발끝이 확실히 보이게 다시 촬영해줘."
-        : `비율(얼/상/하): ${prop.map(x => x.toFixed(3)).join(" / ")} · 구간: ${scoreBandText(score)} · (${selectedGender === "male" ? "남자" : "여자"}) · 카메라: ${facingMode === "user" ? "전면" : "후면"}`;
+        : `비율(얼/상/하): ${prop.map(x => x.toFixed(3)).join(" / ")} · 구간: ${scoreBandText(score)} · (${selectedGender === "male" ? "남자" : "여자"})`;
 
     statusEl.textContent = "완료! 다시 측정하려면 ‘다시 측정’ 후 재촬영.";
     try { video.play(); } catch {}
     return;
   }
 
-  // 2) 실시간 프리뷰 결과(점수X, 막대 표시)
+  // 프리뷰 결과(가이드)
   previewBusy = false;
-
   if (!results.poseLandmarks) {
-    // 인식 안 되면 오버레이만 깨끗하게
     clearOverlay();
     return;
   }
-
   drawPreviewGuides(results.poseLandmarks);
 }
 
@@ -439,7 +443,6 @@ function drawPreviewGuides(lm) {
   const ctx = overlay.getContext("2d");
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-  // 스켈레톤/랜드마크(기본)
   if (typeof drawConnectors === "function" && typeof POSE_CONNECTIONS !== "undefined") {
     drawConnectors(ctx, lm, POSE_CONNECTIONS, { lineWidth: 3 });
   }
@@ -447,70 +450,68 @@ function drawPreviewGuides(lm) {
     drawLandmarks(ctx, lm, { lineWidth: 2 });
   }
 
-  // 표시 좌표는 "화면 캔버스" 기준 (0~1 -> px)
   const w = overlay.width, h = overlay.height;
 
+  const nose = lm[IDX.NOSE];
   const le = lm[IDX.LEFT_EAR], re = lm[IDX.RIGHT_EAR];
   const ls = lm[IDX.LEFT_SHOULDER], rs = lm[IDX.RIGHT_SHOULDER];
   const lh = lm[IDX.LEFT_HIP], rh = lm[IDX.RIGHT_HIP];
-  const la = pickBetter(lm[IDX.LEFT_ANKLE], lm[IDX.LEFT_FOOT_INDEX]);
-  const ra = pickBetter(lm[IDX.RIGHT_ANKLE], lm[IDX.RIGHT_FOOT_INDEX]);
 
-  if (!good(le, re, ls, rs, lh, rh, la, ra)) return;
+  const lFoot = selectBest(lm, [IDX.LEFT_FOOT_INDEX, IDX.LEFT_HEEL, IDX.LEFT_ANKLE]);
+  const rFoot = selectBest(lm, [IDX.RIGHT_FOOT_INDEX, IDX.RIGHT_HEEL, IDX.RIGHT_ANKLE]);
+
+  if (!goodCore(le, re, ls, rs, lh, rh) || !goodFoot(lFoot, rFoot)) return;
 
   const earMid = mid(toPx01(le, w, h), toPx01(re, w, h));
   const shoulder = mid(toPx01(ls, w, h), toPx01(rs, w, h));
   const hip = mid(toPx01(lh, w, h), toPx01(rh, w, h));
-  const foot = mid(toPx01(la, w, h), toPx01(ra, w, h));
+  const foot = mid(toPx01(lFoot, w, h), toPx01(rFoot, w, h));
 
+  // headTop: nose가 보이면 nose 사용, 아니면 earMid 사용
+  const headBase = (nose && (nose.visibility ?? 0) >= MIN_VIS_CORE) ? toPx01(nose, w, h) : earMid;
   const headTop = {
-    x: earMid.x + (earMid.x - shoulder.x) * 0.25,
-    y: earMid.y + (earMid.y - shoulder.y) * 0.90,
+    x: headBase.x + (headBase.x - shoulder.x) * 0.20,
+    y: headBase.y + (headBase.y - shoulder.y) * 0.90,
   };
 
-  // 1) 중심 “막대” (3구간)
+  // 세 구간 막대(중심선)
   ctx.save();
   ctx.lineCap = "round";
   ctx.globalAlpha = 0.95;
 
-  drawSeg(ctx, headTop, shoulder, 10); // 얼굴 막대
-  drawSeg(ctx, shoulder, hip, 10);     // 상체 막대
-  drawSeg(ctx, hip, foot, 10);         // 하체 막대
+  // 색 고정
+  strokeSeg(ctx, headTop, shoulder, 10, "rgba(90,209,255,0.95)");     // 얼굴
+  strokeSeg(ctx, shoulder, hip, 10, "rgba(255,255,255,0.85)");        // 상체
+  strokeSeg(ctx, hip, foot, 10, "rgba(180,140,255,0.85)");            // 하체
 
-  // 2) 어깨/골반 가이드(가로선)
+  // 어깨/골반 가이드
   ctx.globalAlpha = 0.55;
-  drawHLine(ctx, shoulder.y, 4);
-  drawHLine(ctx, hip.y, 4);
+  strokeHLine(ctx, shoulder.y, 4);
+  strokeHLine(ctx, hip.y, 4);
 
-  // 3) 좌측 HUD “막대” (얼굴/상체/하체 길이 비율 시각화)
+  // 좌측 HUD 바
   ctx.globalAlpha = 0.85;
   const faceLen = dist(headTop, shoulder);
   const torsoLen = dist(shoulder, hip);
   const legLen = dist(hip, foot);
   const sum = faceLen + torsoLen + legLen;
 
-  const barX = 20;
-  const barW = 18;
-  const barTop = 20;
+  const barX = 20, barW = 18, barTop = 20;
   const barH = Math.max(160, Math.min(overlay.height - 40, 260));
   const fH = barH * (faceLen / sum);
   const tH = barH * (torsoLen / sum);
   const lH = barH * (legLen / sum);
 
-  // 배경 바
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   roundRect(ctx, barX - 8, barTop - 8, barW + 16, barH + 16, 12, true, false);
 
-  // 세 구간 바(색은 코드에서 지정하지만, UI 목적이라 OK)
-  ctx.fillStyle = "rgba(90,209,255,0.85)"; // 얼굴
+  ctx.fillStyle = "rgba(90,209,255,0.85)";
   ctx.fillRect(barX, barTop, barW, fH);
-  ctx.fillStyle = "rgba(255,255,255,0.75)"; // 상체
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.fillRect(barX, barTop + fH, barW, tH);
-  ctx.fillStyle = "rgba(180,140,255,0.75)"; // 하체
+  ctx.fillStyle = "rgba(180,140,255,0.75)";
   ctx.fillRect(barX, barTop + fH + tH, barW, lH);
 
-  // 라벨
-  ctx.globalAlpha = 0.9;
   ctx.fillStyle = "rgba(255,255,255,0.9)";
   ctx.font = "bold 12px system-ui";
   ctx.fillText("얼굴", barX + 28, barTop + Math.min(14, fH - 2));
@@ -520,41 +521,16 @@ function drawPreviewGuides(lm) {
   ctx.restore();
 }
 
-// 중심 세그먼트 라인(색은 구간별로 다르게)
-function drawSeg(ctx, a, b, width) {
-  const len = dist(a, b);
-  if (len <= 1) return;
-
-  // 구간별 색
-  // 얼굴(blue), 상체(white), 하체(purple)
-  // a 위치로 구분하기보다 호출 순서로 색 지정
-  const key = drawSeg._k = (drawSeg._k ?? 0) + 1;
-  if (key % 3 === 1) ctx.strokeStyle = "rgba(90,209,255,0.95)";
-  else if (key % 3 === 2) ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  else ctx.strokeStyle = "rgba(180,140,255,0.85)";
-
+function strokeSeg(ctx, a, b, width, color) {
+  ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
   ctx.stroke();
-
-  // 끝점 강조 “막대”
-  ctx.lineWidth = width + 6;
-  ctx.globalAlpha *= 0.4;
-  ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-  ctx.lineTo(a.x + 0.1, a.y + 0.1);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(b.x, b.y);
-  ctx.lineTo(b.x + 0.1, b.y + 0.1);
-  ctx.stroke();
-  ctx.globalAlpha /= 0.4;
 }
 
-// 가로 가이드 라인
-function drawHLine(ctx, y, width) {
+function strokeHLine(ctx, y, width) {
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.lineWidth = width;
   ctx.beginPath();
@@ -582,31 +558,33 @@ function drawCaptured(results) {
 }
 
 // =========================
-// Measure (캡처용)
+// Measure proportions
 // =========================
 function measureProportions(lm, w, h) {
+  const nose = lm[IDX.NOSE];
   const le = lm[IDX.LEFT_EAR], re = lm[IDX.RIGHT_EAR];
   const ls = lm[IDX.LEFT_SHOULDER], rs = lm[IDX.RIGHT_SHOULDER];
   const lh = lm[IDX.LEFT_HIP], rh = lm[IDX.RIGHT_HIP];
-  const la = pickBetter(lm[IDX.LEFT_ANKLE], lm[IDX.LEFT_FOOT_INDEX]);
-  const ra = pickBetter(lm[IDX.RIGHT_ANKLE], lm[IDX.RIGHT_FOOT_INDEX]);
 
-  if (!good(le, re, ls, rs, lh, rh, la, ra)) return null;
+  const lFoot = selectBest(lm, [IDX.LEFT_FOOT_INDEX, IDX.LEFT_HEEL, IDX.LEFT_ANKLE]);
+  const rFoot = selectBest(lm, [IDX.RIGHT_FOOT_INDEX, IDX.RIGHT_HEEL, IDX.RIGHT_ANKLE]);
+
+  if (!goodCore(le, re, ls, rs, lh, rh) || !goodFoot(lFoot, rFoot)) return null;
 
   const earMid = mid(toPx01(le, w, h), toPx01(re, w, h));
   const shoulder = mid(toPx01(ls, w, h), toPx01(rs, w, h));
   const hip = mid(toPx01(lh, w, h), toPx01(rh, w, h));
-  const foot = mid(toPx01(la, w, h), toPx01(ra, w, h));
+  const foot = mid(toPx01(lFoot, w, h), toPx01(rFoot, w, h));
 
+  const headBase = (nose && (nose.visibility ?? 0) >= MIN_VIS_CORE) ? toPx01(nose, w, h) : earMid;
   const headTop = {
-    x: earMid.x + (earMid.x - shoulder.x) * 0.25,
-    y: earMid.y + (earMid.y - shoulder.y) * 0.90,
+    x: headBase.x + (headBase.x - shoulder.x) * 0.20,
+    y: headBase.y + (headBase.y - shoulder.y) * 0.90,
   };
 
   const face = dist(headTop, shoulder);
   const torso = dist(shoulder, hip);
   const leg = dist(hip, foot);
-
   const sum = face + torso + leg;
   if (sum <= 1e-6) return null;
 
@@ -614,17 +592,34 @@ function measureProportions(lm, w, h) {
 }
 
 // =========================
-// Score + pick
+// Score (방향 자동 처리)  ✅ 핵심 수정
 // =========================
 function scoreFromProp(prop) {
-  const s = prop.map((p, i) => {
-    const a = MIN_PROP[i], b = MAX_PROP[i];
-    const t = (p - a) / (b - a);
-    return clamp(t, 0, 1) * 100;
+  const scores = prop.map((p, i) => {
+    const minP = MIN_PROP[i];
+    const maxP = MAX_PROP[i];
+
+    // max가 더 큰 경우: 그대로 증가 방향
+    if (maxP > minP) {
+      const t = (p - minP) / (maxP - minP);
+      return clamp(t, 0, 1) * 100;
+    }
+
+    // max가 더 작은 경우: "작을수록 좋다" 방향으로 역변환
+    if (minP > maxP) {
+      const t = (minP - p) / (minP - maxP);
+      return clamp(t, 0, 1) * 100;
+    }
+
+    return 50;
   });
-  return (s[0] + s[1] + s[2]) / 3;
+
+  return (scores[0] + scores[1] + scores[2]) / 3;
 }
 
+// =========================
+// Pick
+// =========================
 function pickByScore(score, gender) {
   const list = PICK_MAP[gender] || PICK_MAP.male;
   for (const item of list) if (score >= item.min) return item;
@@ -649,6 +644,7 @@ function fitCanvasToVideo() {
     overlay.height = h;
   }
 }
+
 function clearOverlay() {
   fitCanvasToVideo();
   const ctx = overlay.getContext("2d");
@@ -656,78 +652,31 @@ function clearOverlay() {
 }
 
 // =========================
-// Countdown + capture
+// Visibility helpers
 // =========================
-async function captureAndAnalyze() {
-  analyzeInFlight = true;
-
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-
-  const cap = document.createElement("canvas");
-  cap.width = vw;
-  cap.height = vh;
-  cap.getContext("2d").drawImage(video, 0, 0, vw, vh);
-  capturedCanvas = cap;
-
-  try { video.pause(); } catch {}
-
-  try {
-    await pose.send({ image: cap });
-  } catch (e) {
-    console.error(e);
-    analyzeInFlight = false;
-    statusEl.textContent = "분석 실패. 다시 촬영해줘.";
-    try { await video.play(); } catch {}
+function goodCore(...pts) {
+  return pts.every(p => p && (p.visibility ?? 0) >= MIN_VIS_CORE);
+}
+function goodFoot(lf, rf) {
+  return lf && rf && (lf.visibility ?? 0) >= MIN_VIS_FOOT && (rf.visibility ?? 0) >= MIN_VIS_FOOT;
+}
+function selectBest(lm, indices) {
+  let best = null;
+  let bestV = -1;
+  for (const idx of indices) {
+    const p = lm[idx];
+    const v = (p?.visibility ?? -1);
+    if (v > bestV) {
+      bestV = v;
+      best = p;
+    }
   }
-}
-
-function cancelCountdown() {
-  if (countdownTimer) {
-    clearInterval(countdownTimer);
-    countdownTimer = null;
-  }
-  timerInFlight = false;
-}
-function showCountdown(n) {
-  countdownEl.textContent = String(n);
-  countdownEl.classList.add("show");
-}
-function updateCountdown(n) {
-  countdownEl.textContent = String(n);
-}
-function hideCountdown() {
-  countdownEl.classList.remove("show");
+  return best;
 }
 
 // =========================
-// Utils
+// Countdown helpers
 // =========================
-function normalize(v) {
-  const s = v.reduce((a, b) => a + b, 0);
-  return v.map(x => x / s);
-}
-function clamp(x, a, b) {
-  return Math.max(a, Math.min(b, x));
-}
-function good(...pts) {
-  return pts.every(p => p && (p.visibility ?? 1) >= MIN_VIS);
-}
-function pickBetter(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  return (a.visibility ?? 0) >= (b.visibility ?? 0) ? a : b;
-}
-function toPx01(p, w, h) {
-  // p.x, p.y 는 0~1
-  return { x: p.x * w, y: p.y * h };
-}
-function mid(a, b) {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (w < 2 * r) r = w / 2;
   if (h < 2 * r) r = h / 2;
@@ -740,4 +689,24 @@ function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   ctx.closePath();
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
+}
+
+// =========================
+// Math utils
+// =========================
+function normalize(v) {
+  const s = v.reduce((a, b) => a + b, 0);
+  return v.map(x => x / s);
+}
+function clamp(x, a, b) {
+  return Math.max(a, Math.min(b, x));
+}
+function toPx01(p, w, h) {
+  return { x: p.x * w, y: p.y * h };
+}
+function mid(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+function dist(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
