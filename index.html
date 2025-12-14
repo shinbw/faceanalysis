@@ -11,7 +11,7 @@
   <main id="screen-home" class="screen active">
     <header class="top">
       <h1>카메라로 비율 측정해서 유사한 연예인 추천해주기</h1>
-      <p class="sub">정면 전신이 화면에 다 나오게 서고, 팔은 자연스럽게 내려주세요.</p>
+      <p class="sub">정면 전신이 화면에 다 나오게 서고, 발이 화면 아래에 잘 보이게 맞춰줘.</p>
     </header>
 
     <section class="panel">
@@ -23,7 +23,7 @@
     </section>
   </main>
 
-  <!-- MEASURE / RESULT SCREEN (A 화면) -->
+  <!-- A SCREEN -->
   <main id="screen-a" class="screen">
     <header class="top">
       <div class="scoreBox">
@@ -45,14 +45,19 @@
           <img id="pickImg" alt="추천 이미지" />
           <div class="meta">
             <div id="pickName" class="name">-</div>
-            <div id="detail" class="detail">-</div>
+            <div id="detail" class="detail">촬영하기 버튼을 눌러 측정해줘.</div>
           </div>
         </div>
 
         <div class="btnRow">
+          <button id="btnCapture" class="btn primary">촬영하기</button>
           <button id="btnRetry" class="btn">다시 측정</button>
           <button id="btnBack" class="btn ghost">홈으로</button>
         </div>
+
+        <p class="hint" style="margin-top:12px;">
+          촬영 시점의 “한 장”으로만 측정합니다. 전신(머리~발끝)이 화면에 들어오게 맞춰줘.
+        </p>
       </div>
     </section>
   </main>
