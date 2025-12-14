@@ -1,10 +1,8 @@
 /* =========================================================
-   요구사항 반영:
-   - 실시간 점수 X, "촬영하기" 눌렀을 때 1장 분석
-   - 남자: 70↑ a2 / 50~70 b2 / 40~50 c2 / 40↓ d2
-   - 여자: 70↑ a1 / 50~70 b1 / 40~50 c1 / 40↓ d1
-   - 점수판(score) 반드시 표시(NaN이면 '측정실패'라도 표시)
-   - 거울모드(좌우반전)는 HTML/CSS에서 영상+오버레이 같이 뒤집음
+   - 촬영하기 누르면 3초 카운트다운 후 촬영(1장 분석)
+   - 남/여 점수 구간별 고정 추천
+   - 전면/후면 카메라 전환(재시작)
+   - 전면(user)만 거울모드 ON
    ========================================================= */
 
 // ====== MIN/MAX (요구사항) ======
@@ -36,12 +34,14 @@ const screenA = document.getElementById("screen-a");
 const btnMale = document.getElementById("btnMale");
 const btnFemale = document.getElementById("btnFemale");
 const btnCapture = document.getElementById("btnCapture");
+const btnSwitchCamera = document.getElementById("btnSwitchCamera");
 const btnRetry = document.getElementById("btnRetry");
 const btnBack = document.getElementById("btnBack");
 
 const video = document.getElementById("video");
 const overlay = document.getElementById("overlay");
 const statusEl = document.getElementById("status");
+const countdownEl = document.getElementById("countdown");
 
 const scoreEl = document.getElementById("score");
 const pickImg = document.getElementById("pickImg");
@@ -53,10 +53,14 @@ let pose = null;
 
 // ====== Camera ======
 let stream = null;
+let facingMode = "user"; // user(전면) / environment(후면)
 
 // ====== State ======
 let selectedGender = "male";
-let captureInFlight = false;
+let analyzeInFlight = false;   // 분석 중(포즈 send 처리중)
+let timerInFlight = false;     // 카운트다운 진행중
+let countdownTimer = null;
+
 let capturedCanvas = null;
 
 // ====== Landmark index (MediaPipe Pose 33) ======
@@ -79,7 +83,8 @@ const MIN_VIS = 0.55;
 // =========================
 btnMale?.addEventListener("click", () => startFlow("male"));
 btnFemale?.addEventListener("click", () => startFlow("female"));
-btnCapture?.addEventListener("click", () => captureOnce());
+btnCapture?.addEventListener("click", () => captureWithDelay(3));
+btnSwitchCamera?.addEventListener("click", () => switchCamera());
 btnRetry?.addEventListener("click", () => resetForRetry());
 btnBack?.addEventListener("click", () => goHome());
 window.addEventListener("resize", () => fitCanvasToVideo());
@@ -110,7 +115,7 @@ async function startFlow(gender) {
     statusEl.textContent = "카메라 준비 중…";
     await initPoseIfNeeded();
     await startCamera();
-    statusEl.textContent = "준비 완료! 전신 맞추고 ‘촬영하기’를 눌러줘.";
+    statusEl.textContent = `준비 완료! (${facingMode === "user" ? "전면" : "후면"}) 전신 맞추고 촬영하기`;
   } catch (err) {
     console.error(err);
     statusEl.textContent =
@@ -119,11 +124,19 @@ async function startFlow(gender) {
 }
 
 function setIdleResult() {
-  if (scoreEl) scoreEl.textContent = "-";
-  if (pickImg) pickImg.src = "";
-  if (pickName) pickName.textContent = "-";
-  if (detail) detail.textContent = "촬영하기 버튼을 눌러 측정해줘.";
+  scoreEl.textContent = "-";
+  pickImg.src = "";
+  pickName.textContent = "-";
+  detail.textContent = "촬영하기 버튼을 눌러 측정해줘.";
+  hideCountdown();
   clearOverlay();
+}
+
+function applyMirrorMode() {
+  const mirror = (facingMode === "user");
+  video.classList.toggle("mirrored", mirror);
+  overlay.classList.toggle("mirrored", mirror);
+  countdownEl.classList.toggle("mirrored", mirror);
 }
 
 // =========================
@@ -131,10 +144,7 @@ function setIdleResult() {
 // =========================
 async function initPoseIfNeeded() {
   if (pose) return;
-
-  if (typeof Pose === "undefined") {
-    throw new Error("pose.js 로드 실패(HTML script 태그 확인).");
-  }
+  if (typeof Pose === "undefined") throw new Error("pose.js 로드 실패");
 
   pose = new Pose({
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
@@ -143,7 +153,7 @@ async function initPoseIfNeeded() {
   pose.setOptions({
     modelComplexity: 1,
     smoothLandmarks: true,
-    selfieMode: true,              // 결과를 셀피 기준으로 맞춰줌
+    selfieMode: true,
     minDetectionConfidence: 0.6,
     minTrackingConfidence: 0.6,
   });
@@ -164,7 +174,7 @@ async function startCamera() {
   stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
-      facingMode: "user", // 전면
+      facingMode: { ideal: facingMode },
       width: { ideal: 1280 },
       height: { ideal: 720 },
     },
@@ -172,77 +182,151 @@ async function startCamera() {
 
   video.srcObject = stream;
   await video.play();
+
+  applyMirrorMode();
   fitCanvasToVideo();
 }
 
 function stopCamera() {
+  cancelCountdown();
+
   if (stream) {
     for (const t of stream.getTracks()) t.stop();
     stream = null;
   }
   video.srcObject = null;
-  captureInFlight = false;
+
+  analyzeInFlight = false;
+  timerInFlight = false;
   capturedCanvas = null;
+
+  hideCountdown();
   clearOverlay();
 }
 
 // =========================
-// Capture (one-shot)
+// Switch camera (restart)
 // =========================
-async function captureOnce() {
+async function switchCamera() {
+  if (analyzeInFlight || timerInFlight) return;
+
+  const prev = facingMode;
+  facingMode = (facingMode === "user") ? "environment" : "user";
+
+  statusEl.textContent = `전환 중… (${facingMode === "user" ? "전면" : "후면"})`;
+  setIdleResult();
+
+  try {
+    stopCamera();
+    await startCamera();
+    statusEl.textContent = `준비 완료! (${facingMode === "user" ? "전면" : "후면"}) 전신 맞추고 촬영하기`;
+  } catch (e) {
+    console.error(e);
+    facingMode = prev;
+    stopCamera();
+    try { await startCamera(); } catch {}
+    statusEl.textContent = "카메라 전환 실패(기기에 후면 카메라가 없을 수 있음).";
+  }
+}
+
+// =========================
+// 3초 후 촬영
+// =========================
+async function captureWithDelay(seconds) {
   if (!stream || !pose) {
     statusEl.textContent = "아직 준비 중이야. 잠깐만!";
     return;
   }
-  if (captureInFlight) return;
+  if (analyzeInFlight || timerInFlight) return;
 
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
+  const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) {
     statusEl.textContent = "비디오 준비가 아직이야. 1초 뒤 다시 눌러봐.";
     return;
   }
 
-  captureInFlight = true;
-  statusEl.textContent = "촬영/분석 중…";
+  timerInFlight = true;
+  showCountdown(seconds);
+  statusEl.textContent = `촬영까지 ${seconds}초… 움직이지 말고 전신 유지!`;
 
-  // 현재 프레임을 캔버스에 저장 (거울효과는 표시만, 분석은 원본 프레임)
+  let left = seconds;
+
+  countdownTimer = setInterval(async () => {
+    left -= 1;
+
+    if (left > 0) {
+      updateCountdown(left);
+      statusEl.textContent = `촬영까지 ${left}초…`;
+      return;
+    }
+
+    // 0초 => 촬영 실행
+    cancelCountdown();
+    hideCountdown();
+    statusEl.textContent = "촬영/분석 중…";
+    await captureAndAnalyze();
+  }, 1000);
+}
+
+function cancelCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+  timerInFlight = false;
+}
+
+function showCountdown(n) {
+  countdownEl.textContent = String(n);
+  countdownEl.classList.add("show");
+}
+function updateCountdown(n) {
+  countdownEl.textContent = String(n);
+}
+function hideCountdown() {
+  countdownEl.classList.remove("show");
+}
+
+// 실제 촬영 + pose 분석 1회
+async function captureAndAnalyze() {
+  analyzeInFlight = true;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+
   const cap = document.createElement("canvas");
   cap.width = vw;
   cap.height = vh;
   cap.getContext("2d").drawImage(video, 0, 0, vw, vh);
   capturedCanvas = cap;
 
-  // (선택) 촬영 순간 화면 느낌 주고 싶으면 일시정지
   try { video.pause(); } catch {}
 
   try {
-    await pose.send({ image: cap }); // 분석 1회
+    await pose.send({ image: cap });
   } catch (e) {
     console.error(e);
-    captureInFlight = false;
+    analyzeInFlight = false;
     statusEl.textContent = "분석 실패. 다시 촬영해줘.";
     try { await video.play(); } catch {}
   }
 }
 
 function resetForRetry() {
-  captureInFlight = false;
+  if (analyzeInFlight || timerInFlight) return;
   capturedCanvas = null;
   setIdleResult();
-  statusEl.textContent = "전신 맞추고 ‘촬영하기’를 눌러줘.";
+  statusEl.textContent = `전신 맞추고 촬영하기 (${facingMode === "user" ? "전면" : "후면"})`;
   try { video.play(); } catch {}
 }
 
 // =========================
-// Pose results (only after capture)
+// Pose results (after analyze)
 // =========================
 function onResults(results) {
-  // captureOnce로 호출된 결과만 처리
-  if (!captureInFlight) return;
-  captureInFlight = false;
+  if (!analyzeInFlight) return;
+  analyzeInFlight = false;
 
-  // 촬영된 사진 + 랜드마크를 오버레이에 표시
   drawCaptured(results);
 
   if (!results.poseLandmarks) {
@@ -263,16 +347,16 @@ function onResults(results) {
   const score = scoreFromProp(prop);
   const rounded = Number.isFinite(score) ? Math.round(score) : null;
 
-  // ✅ 점수 무조건 표시(안 뜨는 문제 방지)
   scoreEl.textContent = (rounded === null) ? "측정실패" : `${rounded}점`;
 
   const pick = pickByScore(score, selectedGender);
   pickImg.src = pick.src;
   pickName.textContent = pick.name;
+
   detail.textContent =
     (rounded === null)
-      ? "점수 계산이 NaN으로 나왔어. 전신/발끝이 확실히 보이게 다시 촬영해줘."
-      : `비율(얼/상/하): ${prop.map(x => x.toFixed(3)).join(" / ")} · 구간: ${scoreBandText(score)} · (${selectedGender === "male" ? "남자" : "여자"})`;
+      ? "점수 계산이 NaN이야. 전신/발끝이 확실히 보이게 다시 촬영해줘."
+      : `비율(얼/상/하): ${prop.map(x => x.toFixed(3)).join(" / ")} · 구간: ${scoreBandText(score)} · (${selectedGender === "male" ? "남자" : "여자"}) · 카메라: ${facingMode === "user" ? "전면" : "후면"}`;
 
   statusEl.textContent = "완료! 다시 측정하려면 ‘다시 측정’ 후 재촬영.";
   try { video.play(); } catch {}
@@ -302,7 +386,6 @@ function measureProportions(lm) {
   const hip = mid(toPx(lh, w, h), toPx(rh, w, h));
   const foot = mid(toPx(la, w, h), toPx(ra, w, h));
 
-  // 머리끝 추정(귀 중심에서 어깨 반대 방향으로 위로)
   const headTop = {
     x: earMid.x + (earMid.x - shoulder.x) * 0.25,
     y: earMid.y + (earMid.y - shoulder.y) * 0.90,
@@ -318,7 +401,7 @@ function measureProportions(lm) {
 }
 
 // =========================
-// Score: MIN_PROP(0) ~ MAX_PROP(100) 선형 매핑 평균
+// Score: MIN_PROP(0) ~ MAX_PROP(100)
 // =========================
 function scoreFromProp(prop) {
   const s = prop.map((p, i) => {
@@ -330,13 +413,11 @@ function scoreFromProp(prop) {
 }
 
 // =========================
-// Pick by score + gender (요구사항 그대로)
+// Pick by score + gender
 // =========================
 function pickByScore(score, gender) {
   const list = PICK_MAP[gender] || PICK_MAP.male;
-  for (const item of list) {
-    if (score >= item.min) return item;
-  }
+  for (const item of list) if (score >= item.min) return item;
   return list[list.length - 1];
 }
 
@@ -355,9 +436,7 @@ function drawCaptured(results) {
   const ctx = overlay.getContext("2d");
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-  if (capturedCanvas) {
-    ctx.drawImage(capturedCanvas, 0, 0, overlay.width, overlay.height);
-  }
+  if (capturedCanvas) ctx.drawImage(capturedCanvas, 0, 0, overlay.width, overlay.height);
 
   if (results.poseLandmarks && typeof drawConnectors === "function" && typeof POSE_CONNECTIONS !== "undefined") {
     drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { lineWidth: 3 });
