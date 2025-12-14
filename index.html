@@ -4,14 +4,104 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>카메라로 비율 측정해서 유사한 연예인 추천해주기</title>
-  <link rel="stylesheet" href="./style.css" />
+
+  <style>
+    :root{
+      --bg:#0b0f14;
+      --card:#121826;
+      --muted:#8aa0b5;
+      --text:#eaf2ff;
+      --primary:#5ad1ff;
+      --border:rgba(255,255,255,.08);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Segoe UI;
+      background:var(--bg); color:var(--text);
+    }
+    .screen{display:none; min-height:100vh; padding:20px;}
+    .screen.active{display:block;}
+    .top{max-width:1100px; margin:0 auto 16px;}
+    h1{margin:0 0 6px; font-size:22px;}
+    .sub{margin:0; color:var(--muted); font-size:14px;}
+
+    .panel{
+      max-width:1100px; margin:0 auto;
+      background:var(--card); border:1px solid var(--border);
+      border-radius:16px; padding:16px;
+    }
+    .btnRow{display:flex; gap:10px; flex-wrap:wrap;}
+    .btn{
+      border:1px solid var(--border);
+      background:#0f1522; color:var(--text);
+      padding:12px 14px; border-radius:12px;
+      cursor:pointer; font-weight:900;
+    }
+    .btn.primary{background:rgba(90,209,255,.12); border-color:rgba(90,209,255,.35);}
+    .btn.ghost{background:transparent;}
+    .hint{color:var(--muted); margin:12px 0 0; font-size:13px;}
+
+    .layout{
+      max-width:1100px; margin:0 auto;
+      display:grid; grid-template-columns: 1.2fr .8fr;
+      gap:14px;
+    }
+    @media (max-width: 900px){
+      .layout{grid-template-columns: 1fr;}
+    }
+
+    .videoWrap{
+      position:relative; background:var(--card);
+      border:1px solid var(--border); border-radius:16px;
+      overflow:hidden; min-height:320px;
+    }
+
+    video,canvas{width:100%; height:auto; display:block;}
+    #overlay{position:absolute; inset:0; width:100%; height:100%;}
+
+    /* ✅ 거울모드(좌우 반전): 비디오 + 오버레이를 같이 뒤집음 */
+    #video, #overlay{
+      transform: scaleX(-1);
+      transform-origin: center;
+    }
+
+    .status{
+      position:absolute; left:12px; bottom:12px;
+      background:rgba(0,0,0,.45); border:1px solid var(--border);
+      padding:8px 10px; border-radius:12px; font-size:13px;
+    }
+
+    .resultWrap{
+      background:var(--card); border:1px solid var(--border);
+      border-radius:16px; padding:16px;
+    }
+    .headline{margin:0 0 12px; font-size:18px;}
+    .card{
+      border:1px solid var(--border); border-radius:16px;
+      overflow:hidden; background:#0f1522;
+    }
+    .card img{width:100%; height:320px; object-fit:cover; display:block;}
+    .meta{padding:10px 12px;}
+    .name{font-weight:950; font-size:16px;}
+    .detail{color:var(--muted); font-size:13px; margin-top:4px;}
+
+    .scoreBox{
+      max-width:1100px; margin:0 auto;
+      display:flex; align-items:center; gap:10px;
+      background:var(--card); border:1px solid var(--border);
+      border-radius:16px; padding:12px 14px;
+    }
+    .scoreLabel{color:var(--muted); font-size:13px;}
+    .score{font-size:22px; font-weight:1000;}
+  </style>
 </head>
+
 <body>
-  <!-- HOME SCREEN -->
+  <!-- HOME -->
   <main id="screen-home" class="screen active">
     <header class="top">
       <h1>카메라로 비율 측정해서 유사한 연예인 추천해주기</h1>
-      <p class="sub">정면 전신이 화면에 다 나오게 서고, 발이 화면 아래에 잘 보이게 맞춰줘.</p>
+      <p class="sub">정면 전신(머리~발끝)이 화면에 들어오게 맞춘 다음, 촬영하기를 눌러줘.</p>
     </header>
 
     <section class="panel">
@@ -23,7 +113,7 @@
     </section>
   </main>
 
-  <!-- A SCREEN -->
+  <!-- A 화면 -->
   <main id="screen-a" class="screen">
     <header class="top">
       <div class="scoreBox">
@@ -56,17 +146,17 @@
         </div>
 
         <p class="hint" style="margin-top:12px;">
-          촬영 시점의 “한 장”으로만 측정합니다. 전신(머리~발끝)이 화면에 들어오게 맞춰줘.
+          촬영 시점의 “한 장”으로만 측정합니다.
         </p>
       </div>
     </section>
   </main>
 
   <!-- MediaPipe Pose (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
-  <script src="./app.js"></script>
+  <!-- ✅ 캐시 방지: 숫자 올리면 업데이트 확실 -->
+  <script src="./app.js?v=10"></script>
 </body>
 </html>
