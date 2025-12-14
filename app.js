@@ -1,20 +1,19 @@
 /* =========================================================
-   FIXED VERSION
-   - 측정실패 줄이기: 발(foot_index/heel/ankle) 중 최적 선택
-   - 0점 고정 해결: MIN_PROP vs MAX_PROP에서 구간 방향 자동 처리
-   - 촬영 전에도 가이드(막대/라인) 계속 표시
-   - 촬영 버튼 3초 카운트다운 후 1장 캡처 분석
-   - 전/후면 전환 + 전면만 거울모드
-   - 점수구간:
+   NEW SCORING RULE (요청대로)
+   - 머리(얼굴) 비율 작을수록 점수 ↑
+   - 상체 비율 작을수록 점수 ↑
+   - 하체 비율 길수록 점수 ↑
+   - 내가 정한 기준범위로 0~100점 변환
+
+   유지 기능:
+   - 촬영 버튼 누르면 3초 후 1장 캡처 분석
+   - 촬영 전에도 가이드(막대/라인/스켈레톤) 많이 표시
+   - 전면/후면 전환
+   - 전면(user)만 거울모드
+   - 추천 구간:
      남: 60↑ a2 / 40~60 b2 / 30~40 c2 / 30↓ d2
      여: 60↑ a1 / 40~60 b1 / 30~40 c1 / 30↓ d1
    ========================================================= */
-
-// ====== MIN/MAX (요구사항) ======
-const MIN = [19, 27, 50];
-const MAX = [43, 62, 140];
-const MIN_PROP = normalize(MIN);
-const MAX_PROP = normalize(MAX);
 
 // ====== 추천 매핑 ======
 const PICK_MAP = {
@@ -33,15 +32,15 @@ const PICK_MAP = {
 };
 
 // ====== UI ======
-const screenHome = document.getElementById("screen-home");
-const screenA = document.getElementById("screen-a");
-
 const btnMale = document.getElementById("btnMale");
 const btnFemale = document.getElementById("btnFemale");
 const btnCapture = document.getElementById("btnCapture");
 const btnSwitchCamera = document.getElementById("btnSwitchCamera");
 const btnRetry = document.getElementById("btnRetry");
 const btnBack = document.getElementById("btnBack");
+
+const screenHome = document.getElementById("screen-home");
+const screenA = document.getElementById("screen-a");
 
 const video = document.getElementById("video");
 const overlay = document.getElementById("overlay");
@@ -92,9 +91,26 @@ const IDX = {
   RIGHT_FOOT_INDEX: 32,
 };
 
-// 실패 줄이려고 기준 완화
-const MIN_VIS_CORE = 0.35; // 귀/어깨/골반은 이 정도면 OK
-const MIN_VIS_FOOT = 0.20; // 발은 더 완화
+// 실패 줄이기(완화)
+const MIN_VIS_CORE = 0.35;
+const MIN_VIS_FOOT = 0.20;
+
+// =========================
+// NEW SCORE 기준(내가 설정)
+// =========================
+// 비율은 face+torso+leg=1
+// "좋은 쪽"의 현실적인 범위를 적당히 설정(너무 좁으면 0/100 쏠림)
+// - face: 작을수록 좋음 (좋음 0.15 ~ 나쁨 0.26)
+// - torso: 작을수록 좋음 (좋음 0.22 ~ 나쁨 0.36)
+// - leg: 클수록 좋음 (나쁨 0.40 ~ 좋음 0.63)
+const FACE_GOOD = 0.15, FACE_BAD = 0.26;     // 낮을수록 좋음
+const TORSO_GOOD = 0.22, TORSO_BAD = 0.36;   // 낮을수록 좋음
+const LEG_BAD = 0.40, LEG_GOOD = 0.63;       // 높을수록 좋음
+
+// 가중치(하체 비중 좀 더 크게)
+const W_FACE = 0.30;
+const W_TORSO = 0.30;
+const W_LEG = 0.40;
 
 // =========================
 // Events
@@ -395,7 +411,8 @@ function onResults(results) {
       return;
     }
 
-    const prop = measureProportions(results.poseLandmarks,
+    const prop = measureProportions(
+      results.poseLandmarks,
       capturedCanvas?.width || video.videoWidth,
       capturedCanvas?.height || video.videoHeight
     );
@@ -419,7 +436,7 @@ function onResults(results) {
     detail.textContent =
       (rounded === null)
         ? "점수 계산이 NaN이야. 전신/발끝이 확실히 보이게 다시 촬영해줘."
-        : `비율(얼/상/하): ${prop.map(x => x.toFixed(3)).join(" / ")} · 구간: ${scoreBandText(score)} · (${selectedGender === "male" ? "남자" : "여자"})`;
+        : `비율(머리/상체/하체): ${prop.map(x => x.toFixed(3)).join(" / ")} · 구간: ${scoreBandText(score)} · (${selectedGender === "male" ? "남자" : "여자"})`;
 
     statusEl.textContent = "완료! 다시 측정하려면 ‘다시 측정’ 후 재촬영.";
     try { video.play(); } catch {}
@@ -436,13 +453,14 @@ function onResults(results) {
 }
 
 // =========================
-// Preview drawing (막대 많이)
+// Preview drawing (막대/가이드 많이)
 // =========================
 function drawPreviewGuides(lm) {
   fitCanvasToVideo();
   const ctx = overlay.getContext("2d");
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 
+  // 기본 스켈레톤/랜드마크
   if (typeof drawConnectors === "function" && typeof POSE_CONNECTIONS !== "undefined") {
     drawConnectors(ctx, lm, POSE_CONNECTIONS, { lineWidth: 3 });
   }
@@ -467,30 +485,25 @@ function drawPreviewGuides(lm) {
   const hip = mid(toPx01(lh, w, h), toPx01(rh, w, h));
   const foot = mid(toPx01(lFoot, w, h), toPx01(rFoot, w, h));
 
-  // headTop: nose가 보이면 nose 사용, 아니면 earMid 사용
   const headBase = (nose && (nose.visibility ?? 0) >= MIN_VIS_CORE) ? toPx01(nose, w, h) : earMid;
   const headTop = {
     x: headBase.x + (headBase.x - shoulder.x) * 0.20,
     y: headBase.y + (headBase.y - shoulder.y) * 0.90,
   };
 
-  // 세 구간 막대(중심선)
+  // 중심 3구간 막대 + 어깨/골반 가이드 + 좌측 HUD 바
   ctx.save();
   ctx.lineCap = "round";
-  ctx.globalAlpha = 0.95;
 
-  // 색 고정
-  strokeSeg(ctx, headTop, shoulder, 10, "rgba(90,209,255,0.95)");     // 얼굴
-  strokeSeg(ctx, shoulder, hip, 10, "rgba(255,255,255,0.85)");        // 상체
-  strokeSeg(ctx, hip, foot, 10, "rgba(180,140,255,0.85)");            // 하체
+  strokeSeg(ctx, headTop, shoulder, 10, "rgba(90,209,255,0.95)");
+  strokeSeg(ctx, shoulder, hip, 10, "rgba(255,255,255,0.85)");
+  strokeSeg(ctx, hip, foot, 10, "rgba(180,140,255,0.85)");
 
-  // 어깨/골반 가이드
   ctx.globalAlpha = 0.55;
   strokeHLine(ctx, shoulder.y, 4);
   strokeHLine(ctx, hip.y, 4);
 
-  // 좌측 HUD 바
-  ctx.globalAlpha = 0.85;
+  // 비율 HUD
   const faceLen = dist(headTop, shoulder);
   const torsoLen = dist(shoulder, hip);
   const legLen = dist(hip, foot);
@@ -502,6 +515,7 @@ function drawPreviewGuides(lm) {
   const tH = barH * (torsoLen / sum);
   const lH = barH * (legLen / sum);
 
+  ctx.globalAlpha = 0.85;
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   roundRect(ctx, barX - 8, barTop - 8, barW + 16, barH + 16, 12, true, false);
 
@@ -514,7 +528,7 @@ function drawPreviewGuides(lm) {
 
   ctx.fillStyle = "rgba(255,255,255,0.9)";
   ctx.font = "bold 12px system-ui";
-  ctx.fillText("얼굴", barX + 28, barTop + Math.min(14, fH - 2));
+  ctx.fillText("머리", barX + 28, barTop + Math.min(14, fH - 2));
   ctx.fillText("상체", barX + 28, barTop + fH + Math.min(14, tH - 2));
   ctx.fillText("하체", barX + 28, barTop + fH + tH + Math.min(14, lH - 2));
 
@@ -558,7 +572,7 @@ function drawCaptured(results) {
 }
 
 // =========================
-// Measure proportions
+// Measure proportions (머리/상체/하체)
 // =========================
 function measureProportions(lm, w, h) {
   const nose = lm[IDX.NOSE];
@@ -585,6 +599,7 @@ function measureProportions(lm, w, h) {
   const face = dist(headTop, shoulder);
   const torso = dist(shoulder, hip);
   const leg = dist(hip, foot);
+
   const sum = face + torso + leg;
   if (sum <= 1e-6) return null;
 
@@ -592,29 +607,43 @@ function measureProportions(lm, w, h) {
 }
 
 // =========================
-// Score (방향 자동 처리)  ✅ 핵심 수정
+// NEW SCORE (요청한 규칙 그대로)
 // =========================
 function scoreFromProp(prop) {
-  const scores = prop.map((p, i) => {
-    const minP = MIN_PROP[i];
-    const maxP = MAX_PROP[i];
+  const face = prop[0];
+  const torso = prop[1];
+  const leg = prop[2];
 
-    // max가 더 큰 경우: 그대로 증가 방향
-    if (maxP > minP) {
-      const t = (p - minP) / (maxP - minP);
-      return clamp(t, 0, 1) * 100;
-    }
+  // 낮을수록 좋은 항목: good~bad 구간을 100~0으로
+  const faceScore = scoreLowBetter(face, FACE_GOOD, FACE_BAD);
+  const torsoScore = scoreLowBetter(torso, TORSO_GOOD, TORSO_BAD);
 
-    // max가 더 작은 경우: "작을수록 좋다" 방향으로 역변환
-    if (minP > maxP) {
-      const t = (minP - p) / (minP - maxP);
-      return clamp(t, 0, 1) * 100;
-    }
+  // 높을수록 좋은 항목: bad~good 구간을 0~100으로
+  const legScore = scoreHighBetter(leg, LEG_BAD, LEG_GOOD);
 
-    return 50;
-  });
+  const total =
+    faceScore * W_FACE +
+    torsoScore * W_TORSO +
+    legScore * W_LEG;
 
-  return (scores[0] + scores[1] + scores[2]) / 3;
+  const score = total / (W_FACE + W_TORSO + W_LEG);
+  return clamp(score, 0, 100);
+}
+
+function scoreLowBetter(x, good, bad) {
+  // x <= good => 100점, x >= bad => 0점
+  if (x <= good) return 100;
+  if (x >= bad) return 0;
+  const t = (x - good) / (bad - good); // 0~1
+  return 100 * (1 - t);
+}
+
+function scoreHighBetter(x, bad, good) {
+  // x <= bad => 0점, x >= good => 100점
+  if (x <= bad) return 0;
+  if (x >= good) return 100;
+  const t = (x - bad) / (good - bad);
+  return 100 * t;
 }
 
 // =========================
@@ -666,16 +695,13 @@ function selectBest(lm, indices) {
   for (const idx of indices) {
     const p = lm[idx];
     const v = (p?.visibility ?? -1);
-    if (v > bestV) {
-      bestV = v;
-      best = p;
-    }
+    if (v > bestV) { bestV = v; best = p; }
   }
   return best;
 }
 
 // =========================
-// Countdown helpers
+// Misc drawing helper
 // =========================
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (w < 2 * r) r = w / 2;
@@ -694,10 +720,6 @@ function roundRect(ctx, x, y, w, h, r, fill, stroke) {
 // =========================
 // Math utils
 // =========================
-function normalize(v) {
-  const s = v.reduce((a, b) => a + b, 0);
-  return v.map(x => x / s);
-}
 function clamp(x, a, b) {
   return Math.max(a, Math.min(b, x));
 }
