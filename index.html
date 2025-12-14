@@ -55,12 +55,11 @@
       border:1px solid var(--border); border-radius:16px;
       overflow:hidden; min-height:320px;
     }
-
     video,canvas{width:100%; height:auto; display:block;}
     #overlay{position:absolute; inset:0; width:100%; height:100%;}
 
-    /* ✅ 거울모드(좌우 반전): 비디오 + 오버레이를 같이 뒤집음 */
-    #video, #overlay{
+    /* 거울모드: 전면(user)일 때만 JS가 class로 켬 */
+    .mirrored{
       transform: scaleX(-1);
       transform-origin: center;
     }
@@ -70,6 +69,17 @@
       background:rgba(0,0,0,.45); border:1px solid var(--border);
       padding:8px 10px; border-radius:12px; font-size:13px;
     }
+
+    /* ✅ 카운트다운 큰 숫자 */
+    .countdown{
+      position:absolute; inset:0;
+      display:flex; align-items:center; justify-content:center;
+      font-size:72px; font-weight:1000;
+      background:rgba(0,0,0,.25);
+      opacity:0; pointer-events:none;
+      transition:opacity .12s ease;
+    }
+    .countdown.show{opacity:1;}
 
     .resultWrap{
       background:var(--card); border:1px solid var(--border);
@@ -126,6 +136,7 @@
       <div class="videoWrap">
         <video id="video" playsinline autoplay muted></video>
         <canvas id="overlay"></canvas>
+        <div id="countdown" class="countdown">3</div>
         <div id="status" class="status">대기중…</div>
       </div>
 
@@ -140,13 +151,14 @@
         </div>
 
         <div class="btnRow">
-          <button id="btnCapture" class="btn primary">촬영하기</button>
+          <button id="btnCapture" class="btn primary">촬영하기 (3초)</button>
+          <button id="btnSwitchCamera" class="btn">전면/후면 전환</button>
           <button id="btnRetry" class="btn">다시 측정</button>
           <button id="btnBack" class="btn ghost">홈으로</button>
         </div>
 
         <p class="hint" style="margin-top:12px;">
-          촬영 시점의 “한 장”으로만 측정합니다.
+          촬영 버튼을 누르면 3초 후 사진 1장으로만 측정합니다.
         </p>
       </div>
     </section>
@@ -156,7 +168,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
-  <!-- ✅ 캐시 방지: 숫자 올리면 업데이트 확실 -->
-  <script src="./app.js?v=10"></script>
+  <script src="./app.js?v=12"></script>
 </body>
 </html>
