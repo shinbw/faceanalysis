@@ -27,6 +27,7 @@
     .btn{border:1px solid var(--border);background:#0f1522;color:var(--text);padding:12px 14px;border-radius:12px;cursor:pointer;font-weight:900;}
     .btn.primary{background:rgba(90,209,255,.12);border-color:rgba(90,209,255,.35);}
     .btn.ghost{background:transparent;}
+    .btn:disabled{opacity:.45;cursor:not-allowed;}
     .hint{color:var(--muted);margin:12px 0 0;font-size:13px;}
 
     .layout{max-width:1100px;margin:0 auto;display:grid;grid-template-columns: 1.2fr .8fr;gap:14px;}
@@ -69,6 +70,23 @@
     }
     .scoreLabel{color:var(--muted);font-size:13px;}
     .score{font-size:22px;font-weight:1000;}
+
+    /* 아래 기준표 */
+    .criteria{
+      margin-top:14px;
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:#0f1522;
+      padding:12px;
+    }
+    .criteriaTitle{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      font-weight:950;
+      margin-bottom:8px;
+    }
+    .criteriaNote{color:var(--muted);font-size:12px;}
+    .criteriaList{margin:0;padding-left:18px;color:var(--text);font-size:13px;line-height:1.55;}
+    .criteriaList span{color:var(--muted);}
   </style>
 </head>
 
@@ -105,6 +123,7 @@
 
       <div class="resultWrap">
         <h2 class="headline">너와 커플로 가장 잘 어울리는 사람은</h2>
+
         <div class="card">
           <img id="pickImg" alt="추천 이미지" />
           <div class="meta">
@@ -113,14 +132,26 @@
           </div>
         </div>
 
-        <div class="btnRow">
+        <div class="btnRow" style="margin-top:12px;">
           <button id="btnCapture" class="btn primary">촬영하기 (3초)</button>
+          <button id="btnSave" class="btn" disabled>사진 저장</button>
           <button id="btnSwitchCamera" class="btn">전면/후면 전환</button>
           <button id="btnRetry" class="btn">다시 측정</button>
           <button id="btnBack" class="btn ghost">홈으로</button>
         </div>
 
-        <p class="hint" style="margin-top:12px;">촬영 버튼을 누르면 3초 후 사진 1장으로만 측정합니다.</p>
+        <!-- ✅ 아래쪽 기준표 -->
+        <div class="criteria">
+          <div class="criteriaTitle">
+            <div id="criteriaHeader">점수 기준</div>
+            <div class="criteriaNote">평가: 머리↓, 상체↓, 하체↑</div>
+          </div>
+          <ul id="criteriaList" class="criteriaList"></ul>
+        </div>
+
+        <p class="hint" style="margin-top:12px;">
+          촬영 버튼을 누르면 3초 후 사진 1장으로만 측정합니다.
+        </p>
       </div>
     </section>
   </main>
@@ -130,6 +161,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
   <!-- 캐시 방지 -->
-  <script src="./app.js?v=40"></script>
+  <script src="./app.js?v=55"></script>
 </body>
 </html>
