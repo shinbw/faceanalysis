@@ -27,25 +27,23 @@ let pose = null;
 
 // ====== Camera ======
 let stream = null;
-let facingMode = "user";
+let facingMode = "user"; // user / environment
 
 // ====== State ======
 let selectedGender = "male";
-
 let analyzeInFlight = false;
 let timerInFlight = false;
 let countdownTimer = null;
 
+// captured still (for analysis overlay)
 let capturedCanvas = null;
-let capturedBlob = null;
-let capturedObjectUrl = null;
 
 // preview loop
 let previewRunning = false;
 let previewBusy = false;
 let previewRafId = null;
 
-// ====== Landmark index ======
+// ====== Landmark index (MediaPipe Pose 33) ======
 const IDX = {
   NOSE: 0,
   LEFT_EYE_INNER: 1, LEFT_EYE: 2, LEFT_EYE_OUTER: 3,
@@ -63,9 +61,9 @@ const IDX = {
 const MIN_VIS = 0.18;
 
 // ====== 점수 기준(널널) ======
-const FACE_GOOD = 0.12, FACE_BAD = 0.36;
-const TORSO_GOOD = 0.18, TORSO_BAD = 0.46;
-const LEG_BAD = 0.30, LEG_GOOD = 0.78;
+const FACE_GOOD = 0.12, FACE_BAD = 0.36;   // 머리 작을수록 좋음
+const TORSO_GOOD = 0.18, TORSO_BAD = 0.46; // 상체 작을수록 좋음
+const LEG_BAD = 0.30, LEG_GOOD = 0.78;     // 하체 길수록 좋음
 
 const W_FACE = 0.28, W_TORSO = 0.28, W_LEG = 0.44;
 const SCORE_FLOOR = 15;
@@ -143,9 +141,9 @@ function setIdleResult() {
   pickName.textContent = "-";
   detail.textContent = "촬영하기 버튼을 눌러 측정해줘.";
 
-  clearCapturedFiles();
   hideCountdown();
   clearOverlay();
+  capturedCanvas = null;
 }
 
 function renderCriteria() {
@@ -229,7 +227,7 @@ function stopCamera() {
 }
 
 function applyMirrorMode() {
-  const mirror = (facingMode === "user");
+  const mirror = (facingMode === "user"); // 전면일 때만 거울
   video.classList.toggle("mirrored", mirror);
   overlay.classList.toggle("mirrored", mirror);
   countdownEl.classList.toggle("mirrored", mirror);
@@ -323,8 +321,6 @@ async function captureWithDelay(seconds) {
     }
     cancelCountdown();
     hideCountdown();
-
-    // ✅ 저장 관련 “알림” 문구 없음 (여긴 상태 표시만)
     statusEl.textContent = "촬영/분석 중…";
     await captureAndAnalyze();
   }, 1000);
@@ -346,6 +342,9 @@ function hideCountdown() {
   countdownEl.classList.remove("show");
 }
 
+// =========================
+// Capture (저장 없음)
+// =========================
 async function captureAndAnalyze() {
   analyzeInFlight = true;
 
@@ -357,11 +356,6 @@ async function captureAndAnalyze() {
   cap.height = vh;
   cap.getContext("2d").drawImage(video, 0, 0, vw, vh);
   capturedCanvas = cap;
-
-  capturedBlob = await canvasToBlob(cap, "image/jpeg", 0.92);
-
-  // ✅ 무조건 다운로드 (사이트 팝업/알림 없음)
-  downloadBlobSilently(capturedBlob);
 
   try { video.pause(); } catch {}
 
@@ -413,7 +407,8 @@ function onResults(results) {
     }
 
     const score = scoreFromProp(prop);
-    scoreEl.textContent = `${Math.round(score)}점`;
+    const rounded = Math.round(score);
+    scoreEl.textContent = `${rounded}점`;
 
     const pick = pickByScore(score, selectedGender);
     pickImg.src = pick.src;
@@ -531,7 +526,6 @@ function pickByScore(score, gender) {
   else if (score >= 30) key = "mid";
   return cfg.items.find(x => x.key === key) || cfg.items[cfg.items.length - 1];
 }
-
 function scoreBandText(score) {
   if (score >= 60) return "60점 이상";
   if (score >= 40) return "40~60";
@@ -592,46 +586,6 @@ function drawCaptured(results) {
   }
   if (results.poseLandmarks && typeof drawLandmarks === "function") {
     drawLandmarks(ctx, results.poseLandmarks, { lineWidth: 2 });
-  }
-}
-
-// =========================
-// Auto download (no UI message)
-// =========================
-function downloadBlobSilently(blob) {
-  try {
-    if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
-    capturedObjectUrl = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = capturedObjectUrl;
-    a.download = makeFileName();
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-function makeFileName() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const ts = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `ratio_capture_${selectedGender}_${ts}.jpg`;
-}
-
-function canvasToBlob(canvas, type="image/jpeg", quality=0.92) {
-  return new Promise((resolve) => {
-    canvas.toBlob((b) => resolve(b), type, quality);
-  });
-}
-
-function clearCapturedFiles() {
-  capturedBlob = null;
-  if (capturedObjectUrl) {
-    URL.revokeObjectURL(capturedObjectUrl);
-    capturedObjectUrl = null;
   }
 }
 
