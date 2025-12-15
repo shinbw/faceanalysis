@@ -323,7 +323,7 @@ async function captureWithDelay(seconds) {
     }
     cancelCountdown();
     hideCountdown();
-    statusEl.textContent = "촬영/분석 중… (촬영 후 자동 저장 시도)";
+    statusEl.textContent = "촬영/분석 중… (자동 다운로드 저장)";
     await captureAndAnalyze();
   }, 1000);
 }
@@ -356,13 +356,11 @@ async function captureAndAnalyze() {
   cap.getContext("2d").drawImage(video, 0, 0, vw, vh);
   capturedCanvas = cap;
 
-  // ✅ 여기서 바로 저장 시도 준비
   capturedBlob = await canvasToBlob(cap, "image/jpeg", 0.92);
 
-  // ✅ “자동 저장”
-  // - 가능하면 공유창을 자동으로 띄움(여기서 ‘사진에 저장’ 선택)
-  // - 공유가 불가능하면 자동 다운로드
-  await autoSaveCaptured();
+  // ✅ 무조건 다운로드로 저장
+  downloadBlob(capturedBlob);
+  statusEl.textContent = "자동 저장 완료! (다운로드 폴더 확인)";
 
   try { video.pause(); } catch {}
 
@@ -425,7 +423,6 @@ function onResults(results) {
     detail.textContent =
       `비율(머리/상체/하체): ${f.toFixed(3)} / ${t.toFixed(3)} / ${l.toFixed(3)} · 구간: ${scoreBandText(score)} · 선택: ${pick.code}`;
 
-    statusEl.textContent = "완료!";
     try { video.play(); } catch {}
     return;
   }
@@ -492,7 +489,7 @@ function ok(p) {
 }
 
 // =========================
-// 점수(널널 + 최소점)
+// 점수
 // =========================
 function scoreFromProp([face, torso, leg]) {
   const faceScore = scoreLowBetter(face, FACE_GOOD, FACE_BAD);
@@ -515,7 +512,6 @@ function scoreLowBetter(x, good, bad) {
   const t = (x - good) / (bad - good);
   return 100 * (1 - t);
 }
-
 function scoreHighBetter(x, bad, good) {
   if (x <= bad) return 0;
   if (x >= good) return 100;
@@ -598,59 +594,34 @@ function drawCaptured(results) {
 }
 
 // =========================
-// Auto save (현실적 한계: share sheet or download)
+// Auto download helpers
 // =========================
-async function autoSaveCaptured() {
-  if (!capturedBlob) return;
-
-  const shared = await tryShare(capturedBlob);
-  if (shared) {
-    statusEl.textContent = "공유창에서 ‘사진에 저장’을 누르면 갤러리에 저장돼!";
-    return;
-  }
-
-  // share 불가능한 환경이면 자동 다운로드
-  downloadBlob(capturedBlob);
-  statusEl.textContent = "공유 불가 → 자동 다운로드 했어(다운로드/파일앱에서 확인).";
-}
-
-async function tryShare(blob) {
-  try {
-    const file = new File([blob], makeFileName(), { type: blob.type || "image/jpeg" });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: "촬영 이미지" });
-      return true;
-    }
-  } catch {
-    // 사용자가 공유창 닫은 경우 등: 강제 저장 불가
-  }
-  return false;
-}
-
 function downloadBlob(blob) {
-  if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
-  capturedObjectUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = capturedObjectUrl;
-  a.download = makeFileName();
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
+  try {
+    if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
+    capturedObjectUrl = URL.createObjectURL(blob);
 
+    const a = document.createElement("a");
+    a.href = capturedObjectUrl;
+    a.download = makeFileName();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    console.error(e);
+  }
+}
 function makeFileName() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const ts = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   return `ratio_capture_${selectedGender}_${ts}.jpg`;
 }
-
 function canvasToBlob(canvas, type="image/jpeg", quality=0.92) {
   return new Promise((resolve) => {
     canvas.toBlob((b) => resolve(b), type, quality);
   });
 }
-
 function clearCapturedFiles() {
   capturedBlob = null;
   if (capturedObjectUrl) {
