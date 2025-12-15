@@ -1,15 +1,3 @@
-/* =========================================================
-   기능 추가
-   1) 촬영 사진 저장(갤러리/다운로드)
-      - 캡처 후 자동으로 share(가능하면) -> 갤러리 저장 가능
-      - 아니면 자동 다운로드
-      - 수동 "사진 저장" 버튼도 제공
-   2) 화면 아래쪽: 성별에 따른 등급명 + 점수 구간 기준 표시
-      - 남: a2 최상급 / b2 상급 / c2 중급 / d2 하급
-      - 여: a1 최상급 / b1 상급 / c1 중급 / d1 하급
-      - 구간: 60↑ / 40~60 / 30~40 / 30↓
-   ========================================================= */
-
 // ====== UI ======
 const screenHome = document.getElementById("screen-home");
 const screenA = document.getElementById("screen-a");
@@ -17,7 +5,6 @@ const screenA = document.getElementById("screen-a");
 const btnMale = document.getElementById("btnMale");
 const btnFemale = document.getElementById("btnFemale");
 const btnCapture = document.getElementById("btnCapture");
-const btnSave = document.getElementById("btnSave");
 const btnSwitchCamera = document.getElementById("btnSwitchCamera");
 const btnRetry = document.getElementById("btnRetry");
 const btnBack = document.getElementById("btnBack");
@@ -40,7 +27,7 @@ let pose = null;
 
 // ====== Camera ======
 let stream = null;
-let facingMode = "user"; // user / environment
+let facingMode = "user";
 
 // ====== State ======
 let selectedGender = "male";
@@ -49,16 +36,16 @@ let analyzeInFlight = false;
 let timerInFlight = false;
 let countdownTimer = null;
 
-let capturedCanvas = null;    // 캡처 원본
-let capturedBlob = null;      // 저장용 blob
-let capturedObjectUrl = null; // 다운로드 링크
+let capturedCanvas = null;
+let capturedBlob = null;
+let capturedObjectUrl = null;
 
 // preview loop
 let previewRunning = false;
 let previewBusy = false;
 let previewRafId = null;
 
-// ====== Landmark index (MediaPipe Pose 33) ======
+// ====== Landmark index ======
 const IDX = {
   NOSE: 0,
   LEFT_EYE_INNER: 1, LEFT_EYE: 2, LEFT_EYE_OUTER: 3,
@@ -76,22 +63,14 @@ const IDX = {
 const MIN_VIS = 0.18;
 
 // ====== 점수 기준(널널) ======
-const FACE_GOOD = 0.12, FACE_BAD = 0.36;     // 머리 작을수록 좋음
-const TORSO_GOOD = 0.18, TORSO_BAD = 0.46;   // 상체 작을수록 좋음
-const LEG_BAD = 0.30, LEG_GOOD = 0.78;       // 하체 길수록 좋음
+const FACE_GOOD = 0.12, FACE_BAD = 0.36;
+const TORSO_GOOD = 0.18, TORSO_BAD = 0.46;
+const LEG_BAD = 0.30, LEG_GOOD = 0.78;
 
 const W_FACE = 0.28, W_TORSO = 0.28, W_LEG = 0.44;
 const SCORE_FLOOR = 15;
 
-// ====== 점수 구간(요구사항) ======
-const BANDS = [
-  { min: 60, key: "top" },
-  { min: 40, key: "high" },
-  { min: 30, key: "mid" },
-  { min: -Infinity, key: "low" },
-];
-
-// ====== 성별별 카드/라벨 ======
+// ====== 성별별 라벨/사진 ======
 const GENDER_MAP = {
   male: {
     header: "남자 점수 기준",
@@ -119,7 +98,6 @@ const GENDER_MAP = {
 btnMale?.addEventListener("click", () => startFlow("male"));
 btnFemale?.addEventListener("click", () => startFlow("female"));
 btnCapture?.addEventListener("click", () => captureWithDelay(3));
-btnSave?.addEventListener("click", () => saveCaptured()); // 수동 저장
 btnSwitchCamera?.addEventListener("click", () => switchCamera());
 btnRetry?.addEventListener("click", () => resetForRetry());
 btnBack?.addEventListener("click", () => goHome());
@@ -133,7 +111,6 @@ function goHome() {
   screenA.classList.remove("active");
   screenHome.classList.add("active");
 }
-
 function goA() {
   screenHome.classList.remove("active");
   screenA.classList.add("active");
@@ -166,9 +143,7 @@ function setIdleResult() {
   pickName.textContent = "-";
   detail.textContent = "촬영하기 버튼을 눌러 측정해줘.";
 
-  disableSave();
   clearCapturedFiles();
-
   hideCountdown();
   clearOverlay();
 }
@@ -176,7 +151,6 @@ function setIdleResult() {
 function renderCriteria() {
   const cfg = GENDER_MAP[selectedGender];
   criteriaHeader.textContent = cfg.header;
-
   criteriaList.innerHTML = "";
   for (const it of cfg.items) {
     const li = document.createElement("li");
@@ -286,7 +260,6 @@ function startPreviewLoop() {
         previewBusy = false;
       }
     }
-
     previewRafId = requestAnimationFrame(tick);
   };
 
@@ -350,7 +323,7 @@ async function captureWithDelay(seconds) {
     }
     cancelCountdown();
     hideCountdown();
-    statusEl.textContent = "촬영/분석 중…";
+    statusEl.textContent = "촬영/분석 중… (촬영 후 자동 저장 시도)";
     await captureAndAnalyze();
   }, 1000);
 }
@@ -383,9 +356,13 @@ async function captureAndAnalyze() {
   cap.getContext("2d").drawImage(video, 0, 0, vw, vh);
   capturedCanvas = cap;
 
-  // 저장용 blob 준비
+  // ✅ 여기서 바로 저장 시도 준비
   capturedBlob = await canvasToBlob(cap, "image/jpeg", 0.92);
-  enableSave();
+
+  // ✅ “자동 저장”
+  // - 가능하면 공유창을 자동으로 띄움(여기서 ‘사진에 저장’ 선택)
+  // - 공유가 불가능하면 자동 다운로드
+  await autoSaveCaptured();
 
   try { video.pause(); } catch {}
 
@@ -411,7 +388,6 @@ function resetForRetry() {
 // Pose results
 // =========================
 function onResults(results) {
-  // 캡처 분석 결과
   if (analyzeInFlight) {
     analyzeInFlight = false;
 
@@ -439,26 +415,21 @@ function onResults(results) {
 
     const score = scoreFromProp(prop);
     const rounded = Math.round(score);
-
     scoreEl.textContent = `${rounded}점`;
 
     const pick = pickByScore(score, selectedGender);
     pickImg.src = pick.src;
-    pickName.textContent = pick.label; // ✅ a1/a2 대신 등급명 표시
+    pickName.textContent = pick.label;
 
     const [f,t,l] = prop;
     detail.textContent =
       `비율(머리/상체/하체): ${f.toFixed(3)} / ${t.toFixed(3)} / ${l.toFixed(3)} · 구간: ${scoreBandText(score)} · 선택: ${pick.code}`;
 
-    statusEl.textContent = "완료! (사진 저장은 ‘사진 저장’ 버튼)";
+    statusEl.textContent = "완료!";
     try { video.play(); } catch {}
-
-    // ✅ 자동 저장 시도(가능하면 share -> 아니면 다운로드)
-    autoSaveCaptured().catch(()=>{});
     return;
   }
 
-  // 프리뷰 결과(가이드)
   previewBusy = false;
   if (!results.poseLandmarks) { clearOverlay(); return; }
   drawPreviewGuides(results.poseLandmarks);
@@ -475,7 +446,6 @@ function measureProportionsY(lm, w, h) {
   const shoulderY = (ls.y + rs.y) / 2 * h;
   const hipY = (lh.y + rh.y) / 2 * h;
 
-  // head top: 얼굴 후보들 중 가장 위(minY) + 적당히 보정
   const headCandidates = [
     lm[IDX.NOSE],
     lm[IDX.LEFT_EYE_INNER], lm[IDX.LEFT_EYE], lm[IDX.LEFT_EYE_OUTER],
@@ -490,7 +460,6 @@ function measureProportionsY(lm, w, h) {
   const headToShoulder = Math.max(5, shoulderY - headMinY);
   const headTopY = Math.max(0, headMinY - headToShoulder * 0.30);
 
-  // foot: 아래(maxY)
   const leftFootMaxY = maxY(lm, [IDX.LEFT_FOOT_INDEX, IDX.LEFT_HEEL, IDX.LEFT_ANKLE], h);
   const rightFootMaxY = maxY(lm, [IDX.RIGHT_FOOT_INDEX, IDX.RIGHT_HEEL, IDX.RIGHT_ANKLE], h);
   if (!Number.isFinite(leftFootMaxY) || !Number.isFinite(rightFootMaxY)) return null;
@@ -523,7 +492,7 @@ function ok(p) {
 }
 
 // =========================
-// 점수(널널 + 최소점 보장)
+// 점수(널널 + 최소점)
 // =========================
 function scoreFromProp([face, torso, leg]) {
   const faceScore = scoreLowBetter(face, FACE_GOOD, FACE_BAD);
@@ -536,7 +505,6 @@ function scoreFromProp([face, torso, leg]) {
     legScore * W_LEG;
 
   const raw = total / (W_FACE + W_TORSO + W_LEG);
-
   const withFloor = SCORE_FLOOR + (100 - SCORE_FLOOR) * (raw / 100);
   return clamp(withFloor, SCORE_FLOOR, 100);
 }
@@ -556,19 +524,16 @@ function scoreHighBetter(x, bad, good) {
 }
 
 // =========================
-// Pick (성별별 item 반환)
+// Pick
 // =========================
 function pickByScore(score, gender) {
   const cfg = GENDER_MAP[gender] || GENDER_MAP.male;
-
   let key = "low";
   if (score >= 60) key = "top";
   else if (score >= 40) key = "high";
   else if (score >= 30) key = "mid";
-
   return cfg.items.find(x => x.key === key) || cfg.items[cfg.items.length - 1];
 }
-
 function scoreBandText(score) {
   if (score >= 60) return "60점 이상";
   if (score >= 40) return "40~60";
@@ -577,7 +542,7 @@ function scoreBandText(score) {
 }
 
 // =========================
-// Preview guides (간단 HUD)
+// Preview guides
 // =========================
 function drawPreviewGuides(lm) {
   fitCanvasToVideo();
@@ -594,13 +559,10 @@ function drawPreviewGuides(lm) {
   const prop = measureProportionsY(lm, overlay.width, overlay.height);
   if (!prop) return;
 
-  // 좌측 간단 바
   const [f,t,l] = prop;
   const barX = 20, barW = 18, barTop = 20;
   const barH = Math.max(160, Math.min(overlay.height - 40, 260));
-  const fH = barH * f;
-  const tH = barH * t;
-  const lH = barH * l;
+  const fH = barH * f, tH = barH * t, lH = barH * l;
 
   ctx.save();
   ctx.globalAlpha = 0.85;
@@ -636,37 +598,20 @@ function drawCaptured(results) {
 }
 
 // =========================
-// Save to gallery/download
+// Auto save (현실적 한계: share sheet or download)
 // =========================
-function enableSave() {
-  btnSave.disabled = false;
-}
-function disableSave() {
-  btnSave.disabled = true;
-}
-
-function clearCapturedFiles() {
-  capturedBlob = null;
-  if (capturedObjectUrl) {
-    URL.revokeObjectURL(capturedObjectUrl);
-    capturedObjectUrl = null;
-  }
-}
-
 async function autoSaveCaptured() {
   if (!capturedBlob) return;
-  // 자동은 “share 가능하면 share”, 아니면 다운로드 1회
-  if (await tryShare(capturedBlob)) return;
-  downloadBlob(capturedBlob);
-}
 
-async function saveCaptured() {
-  if (!capturedBlob) {
-    statusEl.textContent = "저장할 사진이 없어. 먼저 촬영해줘!";
+  const shared = await tryShare(capturedBlob);
+  if (shared) {
+    statusEl.textContent = "공유창에서 ‘사진에 저장’을 누르면 갤러리에 저장돼!";
     return;
   }
-  if (await tryShare(capturedBlob)) return;
+
+  // share 불가능한 환경이면 자동 다운로드
   downloadBlob(capturedBlob);
+  statusEl.textContent = "공유 불가 → 자동 다운로드 했어(다운로드/파일앱에서 확인).";
 }
 
 async function tryShare(blob) {
@@ -674,30 +619,23 @@ async function tryShare(blob) {
     const file = new File([blob], makeFileName(), { type: blob.type || "image/jpeg" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], title: "촬영 이미지" });
-      statusEl.textContent = "공유창에서 ‘사진 저장/파일 저장’으로 갤러리에 저장할 수 있어!";
       return true;
     }
-  } catch (e) {
-    // share 취소/실패는 무시하고 fallback
+  } catch {
+    // 사용자가 공유창 닫은 경우 등: 강제 저장 불가
   }
   return false;
 }
 
 function downloadBlob(blob) {
-  try {
-    if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
-    capturedObjectUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = capturedObjectUrl;
-    a.download = makeFileName();
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    statusEl.textContent = "사진 다운로드 완료! (모바일은 다운로드 폴더/사진 앱에서 확인)";
-  } catch (e) {
-    console.error(e);
-    statusEl.textContent = "저장 실패(브라우저 제한).";
-  }
+  if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
+  capturedObjectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = capturedObjectUrl;
+  a.download = makeFileName();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function makeFileName() {
@@ -711,6 +649,14 @@ function canvasToBlob(canvas, type="image/jpeg", quality=0.92) {
   return new Promise((resolve) => {
     canvas.toBlob((b) => resolve(b), type, quality);
   });
+}
+
+function clearCapturedFiles() {
+  capturedBlob = null;
+  if (capturedObjectUrl) {
+    URL.revokeObjectURL(capturedObjectUrl);
+    capturedObjectUrl = null;
+  }
 }
 
 // =========================
