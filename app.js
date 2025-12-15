@@ -323,7 +323,9 @@ async function captureWithDelay(seconds) {
     }
     cancelCountdown();
     hideCountdown();
-    statusEl.textContent = "촬영/분석 중… (자동 다운로드 저장)";
+
+    // ✅ 저장 관련 “알림” 문구 없음 (여긴 상태 표시만)
+    statusEl.textContent = "촬영/분석 중…";
     await captureAndAnalyze();
   }, 1000);
 }
@@ -358,9 +360,8 @@ async function captureAndAnalyze() {
 
   capturedBlob = await canvasToBlob(cap, "image/jpeg", 0.92);
 
-  // ✅ 무조건 다운로드로 저장
-  downloadBlob(capturedBlob);
-  statusEl.textContent = "자동 저장 완료! (다운로드 폴더 확인)";
+  // ✅ 무조건 다운로드 (사이트 팝업/알림 없음)
+  downloadBlobSilently(capturedBlob);
 
   try { video.pause(); } catch {}
 
@@ -412,8 +413,7 @@ function onResults(results) {
     }
 
     const score = scoreFromProp(prop);
-    const rounded = Math.round(score);
-    scoreEl.textContent = `${rounded}점`;
+    scoreEl.textContent = `${Math.round(score)}점`;
 
     const pick = pickByScore(score, selectedGender);
     pickImg.src = pick.src;
@@ -423,6 +423,7 @@ function onResults(results) {
     detail.textContent =
       `비율(머리/상체/하체): ${f.toFixed(3)} / ${t.toFixed(3)} / ${l.toFixed(3)} · 구간: ${scoreBandText(score)} · 선택: ${pick.code}`;
 
+    statusEl.textContent = "완료!";
     try { video.play(); } catch {}
     return;
   }
@@ -530,6 +531,7 @@ function pickByScore(score, gender) {
   else if (score >= 30) key = "mid";
   return cfg.items.find(x => x.key === key) || cfg.items[cfg.items.length - 1];
 }
+
 function scoreBandText(score) {
   if (score >= 60) return "60점 이상";
   if (score >= 40) return "40~60";
@@ -594,9 +596,9 @@ function drawCaptured(results) {
 }
 
 // =========================
-// Auto download helpers
+// Auto download (no UI message)
 // =========================
-function downloadBlob(blob) {
+function downloadBlobSilently(blob) {
   try {
     if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
     capturedObjectUrl = URL.createObjectURL(blob);
@@ -611,17 +613,20 @@ function downloadBlob(blob) {
     console.error(e);
   }
 }
+
 function makeFileName() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const ts = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   return `ratio_capture_${selectedGender}_${ts}.jpg`;
 }
+
 function canvasToBlob(canvas, type="image/jpeg", quality=0.92) {
   return new Promise((resolve) => {
     canvas.toBlob((b) => resolve(b), type, quality);
   });
 }
+
 function clearCapturedFiles() {
   capturedBlob = null;
   if (capturedObjectUrl) {
