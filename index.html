@@ -7,12 +7,8 @@
 
   <style>
     :root{
-      --bg:#0b0f14;
-      --card:#121826;
-      --muted:#8aa0b5;
-      --text:#eaf2ff;
-      --primary:#5ad1ff;
-      --border:rgba(255,255,255,.08);
+      --bg:#0b0f14; --card:#121826; --muted:#8aa0b5; --text:#eaf2ff;
+      --primary:#5ad1ff; --border:rgba(255,255,255,.08);
     }
     *{box-sizing:border-box}
     body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Segoe UI;background:var(--bg);color:var(--text);}
@@ -71,7 +67,6 @@
     .scoreLabel{color:var(--muted);font-size:13px;}
     .score{font-size:22px;font-weight:1000;}
 
-    /* 아래 기준표 */
     .criteria{
       margin-top:14px;
       border:1px solid var(--border);
@@ -134,13 +129,11 @@
 
         <div class="btnRow" style="margin-top:12px;">
           <button id="btnCapture" class="btn primary">촬영하기 (3초)</button>
-          <button id="btnSave" class="btn" disabled>사진 저장</button>
           <button id="btnSwitchCamera" class="btn">전면/후면 전환</button>
           <button id="btnRetry" class="btn">다시 측정</button>
           <button id="btnBack" class="btn ghost">홈으로</button>
         </div>
 
-        <!-- ✅ 아래쪽 기준표 -->
         <div class="criteria">
           <div class="criteriaTitle">
             <div id="criteriaHeader">점수 기준</div>
@@ -150,17 +143,16 @@
         </div>
 
         <p class="hint" style="margin-top:12px;">
-          촬영 버튼을 누르면 3초 후 사진 1장으로만 측정합니다.
+          촬영 버튼을 누르면 3초 후 사진 1장으로만 측정합니다. (촬영 후 자동 저장/다운로드)
         </p>
       </div>
     </section>
   </main>
 
-  <!-- MediaPipe Pose (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 
-  <!-- 캐시 방지 -->
-  <script src="./app.js?v=56"></script>
+  <!-- 캐시 방지 숫자 올리기 -->
+  <script src="./app.js?v=61"></script>
 </body>
 </html>
