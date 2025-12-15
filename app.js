@@ -1,46 +1,26 @@
 /* =========================================================
-   널널 기준 + 점수 잘 나오게 조정 버전
-
-   - 측정: y(세로) 길이로 비율 계산
-   - 점수: 머리/상체 작을수록 ↑, 하체 길수록 ↑
-   - 기준을 넓혀서 대부분 점수가 잘 나오게
-   - 최소점(베이스라인) 15점 보장(0점 박힘 방지)
-
-   유지:
-   - 3초 후 촬영(1장 분석)
-   - 촬영 전 가이드 표시
-   - 전/후면 전환, 전면 거울모드
-   - 추천 구간:
-     남: 60↑ a2 / 40~60 b2 / 30~40 c2 / 30↓ d2
-     여: 60↑ a1 / 40~60 b1 / 30~40 c1 / 30↓ d1
+   기능 추가
+   1) 촬영 사진 저장(갤러리/다운로드)
+      - 캡처 후 자동으로 share(가능하면) -> 갤러리 저장 가능
+      - 아니면 자동 다운로드
+      - 수동 "사진 저장" 버튼도 제공
+   2) 화면 아래쪽: 성별에 따른 등급명 + 점수 구간 기준 표시
+      - 남: a2 최상급 / b2 상급 / c2 중급 / d2 하급
+      - 여: a1 최상급 / b1 상급 / c1 중급 / d1 하급
+      - 구간: 60↑ / 40~60 / 30~40 / 30↓
    ========================================================= */
 
-// ====== 추천 매핑 ======
-const PICK_MAP = {
-  male: [
-    { min: 60, name: "a2", src: "./assets/a2.jpg" },
-    { min: 40, name: "b2", src: "./assets/b2.jpg" },
-    { min: 30, name: "c2", src: "./assets/c2.jpg" },
-    { min: -Infinity, name: "d2", src: "./assets/d2.jpg" },
-  ],
-  female: [
-    { min: 60, name: "a1", src: "./assets/a1.jpg" },
-    { min: 40, name: "b1", src: "./assets/b1.jpg" },
-    { min: 30, name: "c1", src: "./assets/c1.jpg" },
-    { min: -Infinity, name: "d1", src: "./assets/d1.jpg" },
-  ],
-};
-
 // ====== UI ======
+const screenHome = document.getElementById("screen-home");
+const screenA = document.getElementById("screen-a");
+
 const btnMale = document.getElementById("btnMale");
 const btnFemale = document.getElementById("btnFemale");
 const btnCapture = document.getElementById("btnCapture");
+const btnSave = document.getElementById("btnSave");
 const btnSwitchCamera = document.getElementById("btnSwitchCamera");
 const btnRetry = document.getElementById("btnRetry");
 const btnBack = document.getElementById("btnBack");
-
-const screenHome = document.getElementById("screen-home");
-const screenA = document.getElementById("screen-a");
 
 const video = document.getElementById("video");
 const overlay = document.getElementById("overlay");
@@ -52,20 +32,28 @@ const pickImg = document.getElementById("pickImg");
 const pickName = document.getElementById("pickName");
 const detail = document.getElementById("detail");
 
+const criteriaHeader = document.getElementById("criteriaHeader");
+const criteriaList = document.getElementById("criteriaList");
+
 // ====== Pose ======
 let pose = null;
 
 // ====== Camera ======
 let stream = null;
-let facingMode = "user";
+let facingMode = "user"; // user / environment
 
 // ====== State ======
 let selectedGender = "male";
+
 let analyzeInFlight = false;
 let timerInFlight = false;
 let countdownTimer = null;
-let capturedCanvas = null;
 
+let capturedCanvas = null;    // 캡처 원본
+let capturedBlob = null;      // 저장용 blob
+let capturedObjectUrl = null; // 다운로드 링크
+
+// preview loop
 let previewRunning = false;
 let previewBusy = false;
 let previewRafId = null;
@@ -73,48 +61,57 @@ let previewRafId = null;
 // ====== Landmark index (MediaPipe Pose 33) ======
 const IDX = {
   NOSE: 0,
-  LEFT_EYE_INNER: 1,
-  LEFT_EYE: 2,
-  LEFT_EYE_OUTER: 3,
-  RIGHT_EYE_INNER: 4,
-  RIGHT_EYE: 5,
-  RIGHT_EYE_OUTER: 6,
-  LEFT_EAR: 7,
-  RIGHT_EAR: 8,
+  LEFT_EYE_INNER: 1, LEFT_EYE: 2, LEFT_EYE_OUTER: 3,
+  RIGHT_EYE_INNER: 4, RIGHT_EYE: 5, RIGHT_EYE_OUTER: 6,
+  LEFT_EAR: 7, RIGHT_EAR: 8,
 
-  LEFT_SHOULDER: 11,
-  RIGHT_SHOULDER: 12,
-  LEFT_HIP: 23,
-  RIGHT_HIP: 24,
+  LEFT_SHOULDER: 11, RIGHT_SHOULDER: 12,
+  LEFT_HIP: 23, RIGHT_HIP: 24,
 
-  LEFT_ANKLE: 27,
-  RIGHT_ANKLE: 28,
-  LEFT_HEEL: 29,
-  RIGHT_HEEL: 30,
-  LEFT_FOOT_INDEX: 31,
-  RIGHT_FOOT_INDEX: 32,
+  LEFT_ANKLE: 27, RIGHT_ANKLE: 28,
+  LEFT_HEEL: 29, RIGHT_HEEL: 30,
+  LEFT_FOOT_INDEX: 31, RIGHT_FOOT_INDEX: 32,
 };
 
-// 인식 실패 줄이기(완화)
 const MIN_VIS = 0.18;
 
-// =========================
-// ✅ 널널 점수 기준 (대부분 점수 잘 나오게)
-// =========================
-// 0~1 비율 기준
-// 머리/상체: 작을수록 좋음 → GOOD는 조금만 작아도 100에 가깝게
-// 하체: 클수록 좋음 → BAD가 낮고 GOOD가 너무 높지 않게
-const FACE_GOOD = 0.12, FACE_BAD = 0.36;    // (널널) 머리
-const TORSO_GOOD = 0.18, TORSO_BAD = 0.46;  // (널널) 상체
-const LEG_BAD = 0.30, LEG_GOOD = 0.78;      // (널널) 하체
+// ====== 점수 기준(널널) ======
+const FACE_GOOD = 0.12, FACE_BAD = 0.36;     // 머리 작을수록 좋음
+const TORSO_GOOD = 0.18, TORSO_BAD = 0.46;   // 상체 작을수록 좋음
+const LEG_BAD = 0.30, LEG_GOOD = 0.78;       // 하체 길수록 좋음
 
-// 하체 가중치 조금 더
-const W_FACE = 0.28;
-const W_TORSO = 0.28;
-const W_LEG = 0.44;
-
-// ✅ 0점 박힘 방지: 최소점
+const W_FACE = 0.28, W_TORSO = 0.28, W_LEG = 0.44;
 const SCORE_FLOOR = 15;
+
+// ====== 점수 구간(요구사항) ======
+const BANDS = [
+  { min: 60, key: "top" },
+  { min: 40, key: "high" },
+  { min: 30, key: "mid" },
+  { min: -Infinity, key: "low" },
+];
+
+// ====== 성별별 카드/라벨 ======
+const GENDER_MAP = {
+  male: {
+    header: "남자 점수 기준",
+    items: [
+      { key: "top", code: "a2", label: "최상급 비율", src: "./assets/a2.jpg", bandText: "60점 이상" },
+      { key: "high", code: "b2", label: "상급 비율",   src: "./assets/b2.jpg", bandText: "40~60점" },
+      { key: "mid", code: "c2", label: "중급 비율",   src: "./assets/c2.jpg", bandText: "30~40점" },
+      { key: "low", code: "d2", label: "하급 비율",   src: "./assets/d2.jpg", bandText: "30점 이하" },
+    ],
+  },
+  female: {
+    header: "여자 점수 기준",
+    items: [
+      { key: "top", code: "a1", label: "최상급 비율", src: "./assets/a1.jpg", bandText: "60점 이상" },
+      { key: "high", code: "b1", label: "상급 비율",   src: "./assets/b1.jpg", bandText: "40~60점" },
+      { key: "mid", code: "c1", label: "중급 비율",   src: "./assets/c1.jpg", bandText: "30~40점" },
+      { key: "low", code: "d1", label: "하급 비율",   src: "./assets/d1.jpg", bandText: "30점 이하" },
+    ],
+  },
+};
 
 // =========================
 // Events
@@ -122,6 +119,7 @@ const SCORE_FLOOR = 15;
 btnMale?.addEventListener("click", () => startFlow("male"));
 btnFemale?.addEventListener("click", () => startFlow("female"));
 btnCapture?.addEventListener("click", () => captureWithDelay(3));
+btnSave?.addEventListener("click", () => saveCaptured()); // 수동 저장
 btnSwitchCamera?.addEventListener("click", () => switchCamera());
 btnRetry?.addEventListener("click", () => resetForRetry());
 btnBack?.addEventListener("click", () => goHome());
@@ -135,18 +133,20 @@ function goHome() {
   screenA.classList.remove("active");
   screenHome.classList.add("active");
 }
+
 function goA() {
   screenHome.classList.remove("active");
   screenA.classList.add("active");
 }
 
 // =========================
-// Start flow
+// Start
 // =========================
 async function startFlow(gender) {
   selectedGender = gender;
   goA();
   setIdleResult();
+  renderCriteria();
 
   try {
     statusEl.textContent = "카메라 준비 중…";
@@ -154,9 +154,9 @@ async function startFlow(gender) {
     await startCamera();
     statusEl.textContent = `준비 완료! (${facingMode === "user" ? "전면" : "후면"}) 전신 맞추고 촬영하기`;
     startPreviewLoop();
-  } catch (e) {
-    console.error(e);
-    statusEl.textContent = "카메라 시작 실패: HTTPS/권한/브라우저 설정 확인(F12 콘솔).";
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = "카메라 시작 실패: HTTPS/권한(허용)/브라우저 설정 확인(F12 콘솔).";
   }
 }
 
@@ -165,15 +165,27 @@ function setIdleResult() {
   pickImg.src = "";
   pickName.textContent = "-";
   detail.textContent = "촬영하기 버튼을 눌러 측정해줘.";
+
+  disableSave();
+  clearCapturedFiles();
+
   hideCountdown();
   clearOverlay();
 }
 
-function applyMirrorMode() {
-  const mirror = (facingMode === "user");
-  video.classList.toggle("mirrored", mirror);
-  overlay.classList.toggle("mirrored", mirror);
-  countdownEl.classList.toggle("mirrored", mirror);
+function renderCriteria() {
+  const cfg = GENDER_MAP[selectedGender];
+  criteriaHeader.textContent = cfg.header;
+
+  criteriaList.innerHTML = "";
+  for (const it of cfg.items) {
+    const li = document.createElement("li");
+    li.textContent = `${it.label}  `;
+    const span = document.createElement("span");
+    span.textContent = `(${it.bandText} → ${it.code})`;
+    li.appendChild(span);
+    criteriaList.appendChild(li);
+  }
 }
 
 // =========================
@@ -242,6 +254,13 @@ function stopCamera() {
   clearOverlay();
 }
 
+function applyMirrorMode() {
+  const mirror = (facingMode === "user");
+  video.classList.toggle("mirrored", mirror);
+  overlay.classList.toggle("mirrored", mirror);
+  countdownEl.classList.toggle("mirrored", mirror);
+}
+
 // =========================
 // Preview loop
 // =========================
@@ -267,6 +286,7 @@ function startPreviewLoop() {
         previewBusy = false;
       }
     }
+
     previewRafId = requestAnimationFrame(tick);
   };
 
@@ -302,7 +322,7 @@ async function switchCamera() {
     facingMode = prev;
     stopCamera();
     try { await startCamera(); startPreviewLoop(); } catch {}
-    statusEl.textContent = "카메라 전환 실패(후면 카메라가 없을 수 있음).";
+    statusEl.textContent = "카메라 전환 실패(기기에 후면 카메라가 없을 수 있음).";
   }
 }
 
@@ -363,6 +383,10 @@ async function captureAndAnalyze() {
   cap.getContext("2d").drawImage(video, 0, 0, vw, vh);
   capturedCanvas = cap;
 
+  // 저장용 blob 준비
+  capturedBlob = await canvasToBlob(cap, "image/jpeg", 0.92);
+  enableSave();
+
   try { video.pause(); } catch {}
 
   try {
@@ -384,11 +408,13 @@ function resetForRetry() {
 }
 
 // =========================
-// Results
+// Pose results
 // =========================
 function onResults(results) {
+  // 캡처 분석 결과
   if (analyzeInFlight) {
     analyzeInFlight = false;
+
     drawCaptured(results);
 
     if (!results.poseLandmarks) {
@@ -418,24 +444,28 @@ function onResults(results) {
 
     const pick = pickByScore(score, selectedGender);
     pickImg.src = pick.src;
-    pickName.textContent = pick.name;
+    pickName.textContent = pick.label; // ✅ a1/a2 대신 등급명 표시
 
     const [f,t,l] = prop;
     detail.textContent =
-      `비율(머리/상체/하체): ${f.toFixed(3)} / ${t.toFixed(3)} / ${l.toFixed(3)} · 구간: ${scoreBandText(score)}`;
+      `비율(머리/상체/하체): ${f.toFixed(3)} / ${t.toFixed(3)} / ${l.toFixed(3)} · 구간: ${scoreBandText(score)} · 선택: ${pick.code}`;
 
-    statusEl.textContent = "완료! 다시 측정하려면 ‘다시 측정’";
+    statusEl.textContent = "완료! (사진 저장은 ‘사진 저장’ 버튼)";
     try { video.play(); } catch {}
+
+    // ✅ 자동 저장 시도(가능하면 share -> 아니면 다운로드)
+    autoSaveCaptured().catch(()=>{});
     return;
   }
 
+  // 프리뷰 결과(가이드)
   previewBusy = false;
   if (!results.poseLandmarks) { clearOverlay(); return; }
   drawPreviewGuides(results.poseLandmarks);
 }
 
 // =========================
-// y기반 측정 (정의대로)
+// 측정: y 기반
 // =========================
 function measureProportionsY(lm, w, h) {
   const ls = lm[IDX.LEFT_SHOULDER], rs = lm[IDX.RIGHT_SHOULDER];
@@ -445,21 +475,22 @@ function measureProportionsY(lm, w, h) {
   const shoulderY = (ls.y + rs.y) / 2 * h;
   const hipY = (lh.y + rh.y) / 2 * h;
 
+  // head top: 얼굴 후보들 중 가장 위(minY) + 적당히 보정
   const headCandidates = [
     lm[IDX.NOSE],
     lm[IDX.LEFT_EYE_INNER], lm[IDX.LEFT_EYE], lm[IDX.LEFT_EYE_OUTER],
     lm[IDX.RIGHT_EYE_INNER], lm[IDX.RIGHT_EYE], lm[IDX.RIGHT_EYE_OUTER],
     lm[IDX.LEFT_EAR], lm[IDX.RIGHT_EAR],
   ].filter(ok);
-
   if (headCandidates.length === 0) return null;
 
   let headMinY = Infinity;
   for (const p of headCandidates) headMinY = Math.min(headMinY, p.y * h);
 
   const headToShoulder = Math.max(5, shoulderY - headMinY);
-  const headTopY = Math.max(0, headMinY - headToShoulder * 0.30); // 과보정 줄임(널널)
+  const headTopY = Math.max(0, headMinY - headToShoulder * 0.30);
 
+  // foot: 아래(maxY)
   const leftFootMaxY = maxY(lm, [IDX.LEFT_FOOT_INDEX, IDX.LEFT_HEEL, IDX.LEFT_ANKLE], h);
   const rightFootMaxY = maxY(lm, [IDX.RIGHT_FOOT_INDEX, IDX.RIGHT_HEEL, IDX.RIGHT_ANKLE], h);
   if (!Number.isFinite(leftFootMaxY) || !Number.isFinite(rightFootMaxY)) return null;
@@ -492,7 +523,7 @@ function ok(p) {
 }
 
 // =========================
-// ✅ 널널 점수(최소점 보장 포함)
+// 점수(널널 + 최소점 보장)
 // =========================
 function scoreFromProp([face, torso, leg]) {
   const faceScore = scoreLowBetter(face, FACE_GOOD, FACE_BAD);
@@ -506,7 +537,6 @@ function scoreFromProp([face, torso, leg]) {
 
   const raw = total / (W_FACE + W_TORSO + W_LEG);
 
-  // ✅ 바닥 점수 추가(0점 박힘 방지)
   const withFloor = SCORE_FLOOR + (100 - SCORE_FLOOR) * (raw / 100);
   return clamp(withFloor, SCORE_FLOOR, 100);
 }
@@ -526,13 +556,19 @@ function scoreHighBetter(x, bad, good) {
 }
 
 // =========================
-// Pick
+// Pick (성별별 item 반환)
 // =========================
 function pickByScore(score, gender) {
-  const list = PICK_MAP[gender] || PICK_MAP.male;
-  for (const item of list) if (score >= item.min) return item;
-  return list[list.length - 1];
+  const cfg = GENDER_MAP[gender] || GENDER_MAP.male;
+
+  let key = "low";
+  if (score >= 60) key = "top";
+  else if (score >= 40) key = "high";
+  else if (score >= 30) key = "mid";
+
+  return cfg.items.find(x => x.key === key) || cfg.items[cfg.items.length - 1];
 }
+
 function scoreBandText(score) {
   if (score >= 60) return "60점 이상";
   if (score >= 40) return "40~60";
@@ -541,7 +577,7 @@ function scoreBandText(score) {
 }
 
 // =========================
-// Preview HUD (막대 표시)
+// Preview guides (간단 HUD)
 // =========================
 function drawPreviewGuides(lm) {
   fitCanvasToVideo();
@@ -558,17 +594,16 @@ function drawPreviewGuides(lm) {
   const prop = measureProportionsY(lm, overlay.width, overlay.height);
   if (!prop) return;
 
+  // 좌측 간단 바
   const [f,t,l] = prop;
   const barX = 20, barW = 18, barTop = 20;
   const barH = Math.max(160, Math.min(overlay.height - 40, 260));
-
   const fH = barH * f;
   const tH = barH * t;
   const lH = barH * l;
 
   ctx.save();
   ctx.globalAlpha = 0.85;
-
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   roundRect(ctx, barX - 8, barTop - 8, barW + 16, barH + 16, 12, true, false);
 
@@ -579,17 +614,11 @@ function drawPreviewGuides(lm) {
   ctx.fillStyle = "rgba(180,140,255,0.75)";
   ctx.fillRect(barX, barTop + fH + tH, barW, lH);
 
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.font = "bold 12px system-ui";
-  ctx.fillText("머리", barX + 28, barTop + 14);
-  ctx.fillText("상체", barX + 28, barTop + fH + 14);
-  ctx.fillText("하체", barX + 28, barTop + fH + tH + 14);
-
   ctx.restore();
 }
 
 // =========================
-// Capture drawing
+// Draw captured image
 // =========================
 function drawCaptured(results) {
   fitCanvasToVideo();
@@ -607,7 +636,85 @@ function drawCaptured(results) {
 }
 
 // =========================
-// Helpers
+// Save to gallery/download
+// =========================
+function enableSave() {
+  btnSave.disabled = false;
+}
+function disableSave() {
+  btnSave.disabled = true;
+}
+
+function clearCapturedFiles() {
+  capturedBlob = null;
+  if (capturedObjectUrl) {
+    URL.revokeObjectURL(capturedObjectUrl);
+    capturedObjectUrl = null;
+  }
+}
+
+async function autoSaveCaptured() {
+  if (!capturedBlob) return;
+  // 자동은 “share 가능하면 share”, 아니면 다운로드 1회
+  if (await tryShare(capturedBlob)) return;
+  downloadBlob(capturedBlob);
+}
+
+async function saveCaptured() {
+  if (!capturedBlob) {
+    statusEl.textContent = "저장할 사진이 없어. 먼저 촬영해줘!";
+    return;
+  }
+  if (await tryShare(capturedBlob)) return;
+  downloadBlob(capturedBlob);
+}
+
+async function tryShare(blob) {
+  try {
+    const file = new File([blob], makeFileName(), { type: blob.type || "image/jpeg" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "촬영 이미지" });
+      statusEl.textContent = "공유창에서 ‘사진 저장/파일 저장’으로 갤러리에 저장할 수 있어!";
+      return true;
+    }
+  } catch (e) {
+    // share 취소/실패는 무시하고 fallback
+  }
+  return false;
+}
+
+function downloadBlob(blob) {
+  try {
+    if (capturedObjectUrl) URL.revokeObjectURL(capturedObjectUrl);
+    capturedObjectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = capturedObjectUrl;
+    a.download = makeFileName();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    statusEl.textContent = "사진 다운로드 완료! (모바일은 다운로드 폴더/사진 앱에서 확인)";
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "저장 실패(브라우저 제한).";
+  }
+}
+
+function makeFileName() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const ts = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  return `ratio_capture_${selectedGender}_${ts}.jpg`;
+}
+
+function canvasToBlob(canvas, type="image/jpeg", quality=0.92) {
+  return new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), type, quality);
+  });
+}
+
+// =========================
+// Layout helpers
 // =========================
 function fitCanvasToVideo() {
   const w = video.clientWidth || 1280;
@@ -622,9 +729,6 @@ function clearOverlay() {
   const ctx = overlay.getContext("2d");
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 }
-function clamp(x, a, b) {
-  return Math.max(a, Math.min(b, x));
-}
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (w < 2 * r) r = w / 2;
   if (h < 2 * r) r = h / 2;
@@ -637,4 +741,7 @@ function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   ctx.closePath();
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
+}
+function clamp(x, a, b) {
+  return Math.max(a, Math.min(b, x));
 }
