@@ -498,7 +498,13 @@ function scoreFromProp([face, torso, leg]) {
     legScore * W_LEG;
 
   const raw = total / (W_FACE + W_TORSO + W_LEG);
-  const withFloor = SCORE_FLOOR + (100 - SCORE_FLOOR) * (raw / 100);
+  const x = raw / 100;        // 0~1
+  const CENTER = 0.61;
+  const STEEP = 19;
+
+  const y = 0.5 + 0.5 * Math.tanh(STEEP * (x - CENTER)); // 0~1
+  const contrasted = y * 100; // 0~100
+  const withFloor = SCORE_FLOOR + (100 - SCORE_FLOOR) * (contrasted / 100);
   return clamp(withFloor, SCORE_FLOOR, 100);
 }
 
