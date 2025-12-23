@@ -244,10 +244,11 @@ function startPreviewLoop() {
   const tick = async () => {
     if (!previewRunning) return;
 
-    if (timerInFlight || analyzeInFlight) {
-      previewRafId = requestAnimationFrame(tick);
-      return;
-    }
+   if (analyzeInFlight) {
+  previewRafId = requestAnimationFrame(tick);
+  return;
+}
+
 
     if (!previewBusy) {
       previewBusy = true;
@@ -322,6 +323,7 @@ async function captureWithDelay(seconds) {
     cancelCountdown();
     hideCountdown();
     statusEl.textContent = "촬영/분석 중…";
+    analyzeInFlight = true; 
     await captureAndAnalyze();
   }, 1000);
 }
@@ -346,7 +348,7 @@ function hideCountdown() {
 // Capture (저장 없음)
 // =========================
 async function captureAndAnalyze() {
-  analyzeInFlight = true;
+ 
 
   const vw = video.videoWidth;
   const vh = video.videoHeight;
