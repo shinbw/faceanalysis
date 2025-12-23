@@ -499,8 +499,8 @@ function scoreFromProp([face, torso, leg]) {
 
   const raw = total / (W_FACE + W_TORSO + W_LEG);
   const x = raw / 100;        // 0~1
-  const CENTER = 0.61;
-  const STEEP = 19;
+  const CENTER = 0.50;
+  const STEEP = 10;
 
   const y = 0.5 + 0.5 * Math.tanh(STEEP * (x - CENTER)); // 0~1
   const contrasted = y * 100; // 0~100
