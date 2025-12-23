@@ -7,7 +7,7 @@
 
   <style>
     :root{
-      --bg:#0b0f14; --card:#121826; --muted:#8aa0b5; --text:#eaf2ff;
+      --bg:#000; --card:#121826; --muted:#8aa0b5; --text:#eaf2ff;
       --primary:#5ad1ff; --border:rgba(255,255,255,.08);
     }
     *{box-sizing:border-box}
@@ -113,6 +113,69 @@
   height: 100% !important;
   object-fit: cover !important;
 }
+    /* ===== Home 화면: 위쪽 중앙 큰 타이틀 + 중앙 2버튼 ===== */
+#screen-home{
+  display:none;
+  min-height:100vh;
+  padding:24px;
+}
+#screen-home.active{
+  display:flex;              /* screen.active의 display:block을 덮어씀 */
+  flex-direction:column;
+  align-items:center;        /* 가로 중앙 */
+  justify-content:flex-start;/* 위쪽 정렬 */
+  text-align:center;
+  gap:22px;
+  padding-top:44px;          /* “위쪽” 느낌 */
+}
+
+.homeTitle{
+  max-width: 980px;
+}
+.homeTitle h1{
+  margin:0;
+  font-size:42px;            /* 크게 */
+  font-weight:1000;
+  letter-spacing:-0.6px;
+  line-height:1.15;
+}
+.homeTitle p{
+  margin:12px 0 0;
+  font-size:18px;
+  color:var(--muted);
+  font-weight:800;
+}
+
+.homeBtns{
+  display:flex;
+  gap:18px;
+  justify-content:center;
+  align-items:center;
+  flex-wrap:wrap;            /* 모바일에서 아래로 내려가게 */
+  margin-top:8px;
+}
+
+.btnBig{
+  width: min(360px, 44vw);   /* 양쪽에 크게 2개 */
+  height: 92px;
+  border-radius: 18px;
+  font-size: 24px;
+  font-weight: 1000;
+  border: 1px solid rgba(255,255,255,.12);
+  cursor:pointer;
+}
+
+/* 남자=파랑, 여자=핑크 */
+.btnMale{
+  background: rgba(0, 140, 255, .25);
+  border-color: rgba(0, 140, 255, .55);
+}
+.btnFemale{
+  background: rgba(255, 70, 170, .25);
+  border-color: rgba(255, 70, 170, .55);
+}
+.btnMale:hover, .btnFemale:hover{ filter: brightness(1.08); }
+
   </style>
 </head>
 
