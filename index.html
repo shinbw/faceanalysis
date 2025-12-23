@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="ko">
 <head>
@@ -5,196 +6,26 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>카메라로 비율 측정해서 유사한 연예인 추천해주기</title>
 
-  <style>
-    :root{
-      --bg:#000; --card:#121826; --muted:#8aa0b5; --text:#eaf2ff;
-      --primary:#5ad1ff; --border:rgba(255,255,255,.08);
-    }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Segoe UI;background:var(--bg);color:var(--text);}
-    .screen{display:none; min-height:100vh; padding:20px;}
-    .screen.active{display:block;}
-    .top{max-width:1100px; margin:0 auto 16px;}
-    h1{margin:0 0 6px; font-size:22px;}
-    .sub{margin:0; color:var(--muted); font-size:14px;}
-
-    .panel{max-width:1100px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;}
-    .btnRow{display:flex;gap:10px;flex-wrap:wrap;}
-    .btn{border:1px solid var(--border);background:#0f1522;color:var(--text);padding:12px 14px;border-radius:12px;cursor:pointer;font-weight:900;}
-    .btn.primary{background:rgba(90,209,255,.12);border-color:rgba(90,209,255,.35);}
-    .btn.ghost{background:transparent;}
-    .btn:disabled{opacity:.45;cursor:not-allowed;}
-    .hint{color:var(--muted);margin:12px 0 0;font-size:13px;}
-
-    .layout{max-width:1100px;margin:0 auto;display:grid;grid-template-columns: 1.2fr .8fr;gap:14px;}
-    @media (max-width:900px){.layout{grid-template-columns:1fr;}}
-
-    .videoWrap{position:relative;
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:16px;
-  overflow:hidden;
-
-  /* ✅ 세로 프레임 강제 */
-  height: 78vh;                 /* 높이를 먼저 고정 */
-  aspect-ratio: 9 / 16;         /* 세로 비율 */
-  width: min(44vh, 100%);       /* 78vh의 9/16 ≈ 44vh */
-  margin: 0 auto;}
-    video,canvas{width:100%;
-  height:100%;
-  display:block;
-  object-fit:cover;}
-    #overlay{position:absolute;inset:0;width:100%;height:100%;}
-
-    .mirrored{transform:scaleX(-1);transform-origin:center;}
-
-    .status{
-      position:absolute;left:12px;bottom:12px;
-      background:rgba(0,0,0,.45);border:1px solid var(--border);
-      padding:8px 10px;border-radius:12px;font-size:13px;
-      z-index:5;
-    }
-
-    .countdown{
-      position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-      font-size:72px;font-weight:1000;background:rgba(0,0,0,.25);
-      opacity:0;pointer-events:none;transition:opacity .12s ease;
-      z-index:4;
-    }
-    .countdown.show{opacity:1;}
-
-    .resultWrap{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;}
-    .headline{margin:0 0 12px;font-size:18px;}
-    .card{border:1px solid var(--border);border-radius:16px;overflow:hidden;background:#0f1522;}
-    .card img{width:100%;height:320px;object-fit:cover;display:block;}
-    .meta{padding:10px 12px;}
-    .name{font-weight:950;font-size:16px;}
-    .detail{color:var(--muted);font-size:13px;margin-top:4px;}
-
-    .scoreBox{
-      max-width:1100px;margin:0 auto;
-      display:flex;align-items:center;gap:10px;
-      background:var(--card);border:1px solid var(--border);
-      border-radius:16px;padding:12px 14px;
-    }
-    .scoreLabel{color:var(--muted);font-size:13px;}
-    .score{font-size:22px;font-weight:1000;}
-
-    .criteria{
-      margin-top:14px;
-      border:1px solid var(--border);
-      border-radius:16px;
-      background:#0f1522;
-      padding:12px;
-    }
-    .criteriaTitle{
-      display:flex;align-items:center;justify-content:space-between;gap:10px;
-      font-weight:950;
-      margin-bottom:8px;
-    }
-    .criteriaNote{color:var(--muted);font-size:12px;}
-    .criteriaList{margin:0;padding-left:18px;color:var(--text);font-size:13px;line-height:1.55;}
-    .criteriaList span{color:var(--muted);}
-    .videoWrap{
-  position: relative !important;
-  overflow: hidden !important;
-
-  height: 78vh !important;
-  width: min(44vh, 100%) !important;   /* 78vh * 9/16 ≈ 44vh */
-  margin: 0 auto !important;
-
-  aspect-ratio: 9 / 16 !important;
-  min-height: 420px !important;        /* 너무 작아지는 거 방지 */
-  max-height: 78vh !important;
-}
-
-#video, #overlay{
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-}
-    /* ===== Home 화면: 위쪽 중앙 큰 타이틀 + 중앙 2버튼 ===== */
-#screen-home{
-  display:none;
-  min-height:100vh;
-  padding:24px;
-}
-#screen-home.active{
-  display:flex;              /* screen.active의 display:block을 덮어씀 */
-  flex-direction:column;
-  align-items:center;        /* 가로 중앙 */
-  justify-content:flex-start;/* 위쪽 정렬 */
-  text-align:center;
-  gap:22px;
-  padding-top:44px;          /* “위쪽” 느낌 */
-}
-
-.homeTitle{
-  max-width: 980px;
-}
-.homeTitle h1{
-  margin:0;
-  font-size:42px;            /* 크게 */
-  font-weight:1000;
-  letter-spacing:-0.6px;
-  line-height:1.15;
-}
-.homeTitle p{
-  margin:12px 0 0;
-  font-size:18px;
-  color:var(--muted);
-  font-weight:800;
-}
-
-.homeBtns{
-  display:flex;
-  gap:18px;
-  justify-content:center;
-  align-items:center;
-  flex-wrap:wrap;            /* 모바일에서 아래로 내려가게 */
-  margin-top:8px;
-}
-
-.btnBig{
-  width: min(360px, 44vw);   /* 양쪽에 크게 2개 */
-  height: 92px;
-  border-radius: 18px;
-  font-size: 24px;
-  font-weight: 1000;
-  border: 1px solid rgba(255,255,255,.12);
-  cursor:pointer;
-}
-
-/* 남자=파랑, 여자=핑크 */
-.btnMale{
-  background: rgba(0, 140, 255, .25);
-  border-color: rgba(0, 140, 255, .55);
-}
-.btnFemale{
-  background: rgba(255, 70, 170, .25);
-  border-color: rgba(255, 70, 170, .55);
-}
-.btnMale:hover, .btnFemale:hover{ filter: brightness(1.08); }
-
-  </style>
+  <link rel="stylesheet" href="./style.css?v=200" />
 </head>
 
 <body>
- <main id="screen-home" class="screen active">
-  <div class="homeTitle">
-    <h1>카메라로 비율 측정해서 유사한 연예인 추천해주기</h1>
-    <p>전신(머리~발끝)이 화면에 들어오게 맞춘 뒤 촬영하기를 눌러줘.</p>
-  </div>
+  <!-- HOME -->
+  <main id="screen-home" class="screen active">
+    <div class="homeTitle">
+      <h1>카메라로 비율 측정해서 유사한 연예인 추천해주기</h1>
+      <p>전신(머리~발끝)이 화면에 들어오게 맞춘 뒤 촬영하기를 눌러줘.</p>
+    </div>
 
-  <div class="homeBtns">
-    <button id="btnMale" class="btn btnBig btnMale">측정하기 남자</button>
-    <button id="btnFemale" class="btn btnBig btnFemale">측정하기 여자</button>
-  </div>
+    <div class="homeBtns">
+      <button id="btnMale" class="btn btnBig btnMale">측정하기 남자</button>
+      <button id="btnFemale" class="btn btnBig btnFemale">측정하기 여자</button>
+    </div>
 
-  <p class="hint">신동한 제작</p>
-</main>
+    <p class="hint">신동한 제작</p>
+  </main>
 
-
+  <!-- MAIN -->
   <main id="screen-a" class="screen">
     <header class="top">
       <div class="scoreBox">
@@ -204,6 +35,13 @@
     </header>
 
     <section class="layout">
+      <!-- ✅ 왼쪽: 점수별 추천표 -->
+      <div class="mapWrap">
+        <h2 id="mapHeader" class="mapHeader">점수별 추천</h2>
+        <ul id="mapList" class="mapList"></ul>
+      </div>
+
+      <!-- ✅ 카메라(오른쪽으로 붙음) -->
       <div class="videoWrap">
         <video id="video" playsinline autoplay muted></video>
         <canvas id="overlay"></canvas>
@@ -211,6 +49,7 @@
         <div id="status" class="status">대기중…</div>
       </div>
 
+      <!-- ✅ 결과 칸 -->
       <div class="resultWrap">
         <h2 class="headline">너와 커플로 가장 잘 어울리는 사람은</h2>
 
@@ -228,26 +67,12 @@
           <button id="btnRetry" class="btn">다시 측정</button>
           <button id="btnBack" class="btn ghost">홈으로</button>
         </div>
-
-        <div class="criteria">
-          <div class="criteriaTitle">
-            <div id="criteriaHeader">점수 기준</div>
-            <div class="criteriaNote">평가: 머리↓, 상체↓, 하체↑</div>
-          </div>
-          <ul id="criteriaList" class="criteriaList"></ul>
-        </div>
-
-        <p class="hint" style="margin-top:12px;">
-          촬영 버튼을 누르면 3초 후 사진 1장으로만 측정합니다.
-        </p>
       </div>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-
-  <!-- 캐시 방지: 숫자 올리기 -->
-  <script src="./app.js?v=105"></script>
+  <script src="./app.js?v=200"></script>
 </body>
 </html>
