@@ -492,12 +492,8 @@ function scoreFromProp([face, torso, leg]) {
   const torsoScore = scoreLowBetter(torso, TORSO_GOOD, TORSO_BAD);
   const legScore = scoreHighBetter(leg, LEG_BAD, LEG_GOOD);
 
-  const total =
-    faceScore * W_FACE +
-    torsoScore * W_TORSO +
-    legScore * W_LEG;
+const raw = (faceScore + torsoScore + legScore) / 3;
 
-  const raw = total / (W_FACE + W_TORSO + W_LEG);
   const x = raw / 100;        // 0~1
   const CENTER = 0.50;
   const STEEP = 10;
