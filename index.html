@@ -95,6 +95,24 @@
     .criteriaNote{color:var(--muted);font-size:12px;}
     .criteriaList{margin:0;padding-left:18px;color:var(--text);font-size:13px;line-height:1.55;}
     .criteriaList span{color:var(--muted);}
+    .videoWrap{
+  position: relative !important;
+  overflow: hidden !important;
+
+  height: 78vh !important;
+  width: min(44vh, 100%) !important;   /* 78vh * 9/16 ≈ 44vh */
+  margin: 0 auto !important;
+
+  aspect-ratio: 9 / 16 !important;
+  min-height: 420px !important;
+  max-height: 78vh !important;
+}
+
+#video, #overlay{
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
   </style>
 </head>
 
