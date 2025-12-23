@@ -78,3 +78,70 @@ video,canvas{width:100%; height:auto; display:block;}
 }
 .scoreLabel{color:var(--muted); font-size:13px;}
 .score{font-size:22px; font-weight:950;}
+
+/* ===== Home 화면 크게/가운데 ===== */
+#screen-home{
+  display:none;
+  min-height:100vh;
+  padding:24px;
+}
+#screen-home.active{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-start;
+  text-align:center;
+  gap:18px;
+}
+
+.homeTitle{
+  max-width: 980px;
+  margin-top: 34px;
+}
+.homeTitle h1{
+  margin:0;
+  font-size: 38px;
+  font-weight: 1000;
+  letter-spacing: -0.5px;
+}
+.homeTitle p{
+  margin:10px 0 0;
+  font-size: 18px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.homeBtns{
+  display:flex;
+  gap:16px;
+  justify-content:center;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-top: 10px;
+}
+
+.btnBig{
+  width: min(360px, 88vw);
+  height: 86px;
+  border-radius: 18px;
+  font-size: 22px;
+  font-weight: 1000;
+  border: 1px solid rgba(255,255,255,.12);
+  cursor:pointer;
+}
+
+/* 남자=파랑, 여자=핑크 */
+.btnMale{
+  background: rgba(0, 140, 255, .22);
+  border-color: rgba(0, 140, 255, .45);
+}
+.btnFemale{
+  background: rgba(255, 70, 170, .22);
+  border-color: rgba(255, 70, 170, .45);
+}
+.btnMale:hover, .btnFemale:hover{ filter: brightness(1.08); }
+
+/* 홈에서는 패널 박스 안 쓰게 */
+#screen-home .panel{ background: transparent; border: none; padding: 0; }
+#screen-home .hint{ margin-top: 18px; }
+
