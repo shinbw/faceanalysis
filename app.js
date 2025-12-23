@@ -73,19 +73,19 @@ const GENDER_MAP = {
   male: {
     header: "남자 점수 기준",
     items: [
-      { key: "top", code: "a2", label: "최상급 비율", src: "./assets/a2.jpg", bandText: "60점 이상" },
-      { key: "high", code: "b2", label: "상급 비율",   src: "./assets/b2.jpg", bandText: "40~60점" },
-      { key: "mid", code: "c2", label: "중급 비율",   src: "./assets/c2.jpg", bandText: "30~40점" },
-      { key: "low", code: "d2", label: "하급 비율",   src: "./assets/d2.jpg", bandText: "30점 이하" },
+      { key: "top", code: "a2", label: "최상급 비율", src: "./assets/a2.jpg", bandText: "85점 이상" },
+      { key: "high", code: "b2", label: "상급 비율",   src: "./assets/b2.jpg", bandText: "75~84점" },
+      { key: "mid", code: "c2", label: "중급 비율",   src: "./assets/c2.jpg", bandText: "65~74점" },
+      { key: "low", code: "d2", label: "하급 비율",   src: "./assets/d2.jpg", bandText: "64점 이하" },
     ],
   },
   female: {
     header: "여자 점수 기준",
     items: [
-      { key: "top", code: "a1", label: "최상급 비율", src: "./assets/a1.jpg", bandText: "60점 이상" },
-      { key: "high", code: "b1", label: "상급 비율",   src: "./assets/b1.jpg", bandText: "40~60점" },
-      { key: "mid", code: "c1", label: "중급 비율",   src: "./assets/c1.jpg", bandText: "30~40점" },
-      { key: "low", code: "d1", label: "하급 비율",   src: "./assets/d1.jpg", bandText: "30점 이하" },
+      { key: "top", code: "a1", label: "최상급 비율", src: "./assets/a1.jpg", bandText: "85점 이상" },
+      { key: "high", code: "b1", label: "상급 비율",   src: "./assets/b1.jpg", bandText: "75~84점" },
+      { key: "mid", code: "c1", label: "중급 비율",   src: "./assets/c1.jpg", bandText: "65~74점" },
+      { key: "low", code: "d1", label: "하급 비율",   src: "./assets/d1.jpg", bandText: "64점 이하" },
     ],
   },
 };
@@ -527,16 +527,16 @@ function scoreHighBetter(x, bad, good) {
 function pickByScore(score, gender) {
   const cfg = GENDER_MAP[gender] || GENDER_MAP.male;
   let key = "low";
-  if (score >= 60) key = "top";
-  else if (score >= 40) key = "high";
-  else if (score >= 30) key = "mid";
+  if (score >= 85) key = "top";
+  else if (score >= 75) key = "high";
+  else if (score >= 65) key = "mid";
   return cfg.items.find(x => x.key === key) || cfg.items[cfg.items.length - 1];
 }
 function scoreBandText(score) {
-  if (score >= 60) return "60점 이상";
-  if (score >= 40) return "40~60";
-  if (score >= 30) return "30~40";
-  return "30 이하";
+  if (score >= 85) return "85점 이상";
+  if (score >= 75) return "75~84";
+  if (score >= 65) return "65~74";
+  return "64 이하";
 }
 
 // =========================
