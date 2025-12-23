@@ -73,7 +73,7 @@ const GENDER_MAP = {
   male: {
     header: "남자 점수 기준",
     items: [
-      { key: "top", code: "a2", label: "최상급 비율(85점 이상: 에스파 윈터)"},
+      { key: "top", code: "a2", label: "최상급 비율(85점 이상: 에스파 윈터)",   src: "./assets/a2.jpg", bandText: "85점 이상" },
       { key: "high", code: "b2", label: "상급 비율(75~84점: 하츠투하츠 이안)",   src: "./assets/b2.jpg", bandText: "75~84점" },
       { key: "mid", code: "c2", label: "중급 비율(65~74점: 르세라핌 홍은채)",   src: "./assets/c2.jpg", bandText: "65~74점" },
       { key: "low", code: "d2", label: "하급 비율(64점 이하: 개그우먼 김민경)",   src: "./assets/d2.jpg", bandText: "64점 이하" },
