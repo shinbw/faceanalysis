@@ -1,3 +1,5 @@
+// app.js
+
 // ====== UI ======
 const screenHome = document.getElementById("screen-home");
 const screenA = document.getElementById("screen-a");
@@ -19,8 +21,9 @@ const pickImg = document.getElementById("pickImg");
 const pickName = document.getElementById("pickName");
 const detail = document.getElementById("detail");
 
-const criteriaHeader = document.getElementById("criteriaHeader");
-const criteriaList = document.getElementById("criteriaList");
+// ✅ 왼쪽 표
+const mapHeader = document.getElementById("mapHeader");
+const mapList = document.getElementById("mapList");
 
 // ====== Pose ======
 let pose = null;
@@ -65,27 +68,27 @@ const FACE_GOOD = 0.12, FACE_BAD = 0.36;   // 머리 작을수록 좋음
 const TORSO_GOOD = 0.18, TORSO_BAD = 0.46; // 상체 작을수록 좋음
 const LEG_BAD = 0.30, LEG_GOOD = 0.78;     // 하체 길수록 좋음
 
-const W_FACE = 0.28, W_TORSO = 0.28, W_LEG = 0.44;
 const SCORE_FLOOR = 15;
 
-// ====== 성별별 라벨/사진 ======
+// ====== 성별별 추천표/사진 ======
+// (요청대로: 남자 선택 → 여자 연예인 / 여자 선택 → 남자 연예인)
 const GENDER_MAP = {
   male: {
-    header: "남자 점수 기준",
+    header: "남자 선택했을 때 (추천)",
     items: [
-      { key: "top", code: "a2", label: "최상급 비율(85점 이상: 에스파 윈터)",   src: "./assets/a2.jpg", bandText: "85점 이상" },
-      { key: "high", code: "b2", label: "상급 비율(75~84점: 하츠투하츠 이안)",   src: "./assets/b2.jpg", bandText: "75~84점" },
-      { key: "mid", code: "c2", label: "중급 비율(65~74점: 르세라핌 홍은채)",   src: "./assets/c2.jpg", bandText: "65~74점" },
-      { key: "low", code: "d2", label: "하급 비율(64점 이하: 개그우먼 김민경)",   src: "./assets/d2.jpg", bandText: "64점 이하" },
+      { key: "top",  code: "a2", label: "에스파 윈터",       src: "./assets/a2.jpg", bandText: "85점 이상" },
+      { key: "high", code: "b2", label: "하츠투하츠 이안",   src: "./assets/b2.jpg", bandText: "75~84점" },
+      { key: "mid",  code: "c2", label: "르세라핌 홍은채",   src: "./assets/c2.jpg", bandText: "65~74점" },
+      { key: "low",  code: "d2", label: "개그우먼 김민경",   src: "./assets/d2.jpg", bandText: "64점 이하" },
     ],
   },
   female: {
-    header: "여자 점수 기준",
+    header: "여자 선택했을 때 (추천)",
     items: [
-      { key: "top", code: "a1", label: "최상급 비율", src: "./assets/a1.jpg", bandText: "85점 이상" },
-      { key: "high", code: "b1", label: "상급 비율",   src: "./assets/b1.jpg", bandText: "75~84점" },
-      { key: "mid", code: "c1", label: "중급 비율",   src: "./assets/c1.jpg", bandText: "65~74점" },
-      { key: "low", code: "d1", label: "하급 비율",   src: "./assets/d1.jpg", bandText: "64점 이하" },
+      { key: "top",  code: "a1", label: "방탄소년단 뷔",   src: "./assets/a1.jpg", bandText: "85점 이상" },
+      { key: "high", code: "b1", label: "투어스 신유",     src: "./assets/b1.jpg", bandText: "75~84점" },
+      { key: "mid",  code: "c1", label: "유병재",          src: "./assets/c1.jpg", bandText: "65~74점" },
+      { key: "low",  code: "d1", label: "유민상",          src: "./assets/d1.jpg", bandText: "64점 이하" },
     ],
   },
 };
@@ -121,7 +124,7 @@ async function startFlow(gender) {
   selectedGender = gender;
   goA();
   setIdleResult();
-  renderCriteria();
+  renderPartnerMap();
 
   try {
     statusEl.textContent = "카메라 준비 중…";
@@ -146,17 +149,18 @@ function setIdleResult() {
   capturedCanvas = null;
 }
 
-function renderCriteria() {
-  const cfg = GENDER_MAP[selectedGender];
-  criteriaHeader.textContent = cfg.header;
-  criteriaList.innerHTML = "";
+// ✅ 왼쪽 추천표 렌더
+function renderPartnerMap() {
+  const cfg = GENDER_MAP[selectedGender] || GENDER_MAP.male;
+  if (!mapHeader || !mapList) return;
+
+  mapHeader.textContent = cfg.header;
+  mapList.innerHTML = "";
+
   for (const it of cfg.items) {
     const li = document.createElement("li");
-    li.textContent = `${it.label}  `;
-    const span = document.createElement("span");
-    span.textContent = `(${it.bandText} → ${it.code})`;
-    li.appendChild(span);
-    criteriaList.appendChild(li);
+    li.innerHTML = `<span>${it.bandText}</span> → ${it.label}`;
+    mapList.appendChild(li);
   }
 }
 
@@ -244,11 +248,10 @@ function startPreviewLoop() {
   const tick = async () => {
     if (!previewRunning) return;
 
-   if (analyzeInFlight) {
-  previewRafId = requestAnimationFrame(tick);
-  return;
-}
-
+    if (analyzeInFlight) {
+      previewRafId = requestAnimationFrame(tick);
+      return;
+    }
 
     if (!previewBusy) {
       previewBusy = true;
@@ -323,7 +326,7 @@ async function captureWithDelay(seconds) {
     cancelCountdown();
     hideCountdown();
     statusEl.textContent = "촬영/분석 중…";
-    analyzeInFlight = true; 
+    analyzeInFlight = true;
     await captureAndAnalyze();
   }, 1000);
 }
@@ -348,8 +351,6 @@ function hideCountdown() {
 // Capture (저장 없음)
 // =========================
 async function captureAndAnalyze() {
- 
-
   const vw = video.videoWidth;
   const vh = video.videoHeight;
 
@@ -494,7 +495,7 @@ function scoreFromProp([face, torso, leg]) {
   const torsoScore = scoreLowBetter(torso, TORSO_GOOD, TORSO_BAD);
   const legScore = scoreHighBetter(leg, LEG_BAD, LEG_GOOD);
 
-const raw = (faceScore + torsoScore + legScore) / 3;
+  const raw = (faceScore + torsoScore + legScore) / 3;
 
   const x = raw / 100;        // 0~1
   const CENTER = 0.50;
